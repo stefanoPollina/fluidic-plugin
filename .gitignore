@@ -1,0 +1,4 @@
+build/
+installer/Output/
+__pycache__/
+*.raw

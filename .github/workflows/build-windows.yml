@@ -1,0 +1,35 @@
+name: Build FLUIDIC for Windows
+
+# Every push builds the VST3, the standalone app and an installer on GitHub's Windows machines.
+# Download them from the run's "Artifacts" section (Actions tab → latest run → FLUIDIC-windows).
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (downloads JUCE and the WebView2 SDK)
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build VST3 + Standalone
+        run: cmake --build build --config Release --target FLUIDIC_VST3 FLUIDIC_Standalone --parallel
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc installer\fluidic.iss
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: FLUIDIC-windows
+          path: |
+            build/FLUIDIC_artefacts/Release/VST3/FLUIDIC.vst3
+            build/FLUIDIC_artefacts/Release/Standalone/FLUIDIC.exe
+            installer/Output/*.exe

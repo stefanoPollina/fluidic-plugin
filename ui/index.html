@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLUIDIC</title>
+<style>
+  :root {
+    --bg: #0b0c0e; --panel: #131417; --panel2: #101113; --line: #23262c; --line-2: #2f343c;
+    --text: #e7ebf1; --dim: #8a93a3; --aqua: #5fd4e6; --aqua-d: #2b8fa0; --amber: #e2a84a; --curse: #b46cf0; --red: #e5484d;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { min-height: 100vh; display: flex; justify-content: center; }
+  /* the whole instrument fits the window: the drip view takes whatever height is left, the keyboard stays on screen */
+  html, body { height: 100%; overflow: hidden; }
+  .fluidic { width: min(1280px, 100vw); height: 100vh; height: 100dvh; padding: 12px; display: flex; flex-direction: column; gap: 10px; user-select: none; }
+  .fluidic > * { flex: none; }
+  .fluidic > .viz { flex: 1 0 300px; height: auto; }   /* never below 300px; takes any spare height */
+  .mid { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; scrollbar-color: #2f343c transparent; }
+  .mid::-webkit-scrollbar { width: 6px; } .mid::-webkit-scrollbar-thumb { background: #2f343c; border-radius: 3px; }
+  .mid.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 26px), transparent); mask-image: linear-gradient(#000 calc(100% - 26px), transparent); }
+
+  header { display: flex; align-items: center; gap: 14px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand svg { width: 34px; height: 34px; }
+  .brand b { font-size: 18px; letter-spacing: .32em; font-weight: 700; }
+  .brand small { display: block; color: var(--dim); font-size: 9px; letter-spacing: .22em; margin-top: 2px; }
+  .spacer { flex: 1; }
+  select.preset { background: #0f1012; color: var(--text); border: 1px solid var(--line-2); border-radius: 6px; height: 30px; padding: 0 10px; font: inherit; min-width: 200px; }
+  .meter { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 10px; letter-spacing: .12em; }
+  .meter i { width: 90px; height: 6px; background: #1a1c20; border-radius: 3px; overflow: hidden; display: block; }
+  .meter i b { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--aqua), var(--amber) 70%, var(--red)); }
+
+  .viz { position: relative; height: auto; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #05080b; }
+  .viz canvas { width: 100%; height: 100%; display: block; }
+  .viz .hud { position: absolute; left: 14px; top: 10px; font-size: 10px; letter-spacing: .18em; color: #7fb6c1; pointer-events: none; }
+  .viz .hud span { color: var(--aqua); }
+  .viz .view { position: absolute; right: 10px; top: 8px; display: flex; border: 1px solid #23414a; border-radius: 6px; overflow: hidden; z-index: 2; }
+  .viz .view button { background: rgba(5,12,16,.7); color: #6f9aa3; border: 0; font: inherit; font-size: 10px; letter-spacing: .16em; padding: 4px 9px; cursor: pointer; }
+  .viz .view button.on { background: #0f3a44; color: var(--aqua); }
+
+  .rack { display: grid; grid-template-columns: 1fr 1.7fr 1fr 1.25fr; gap: 10px; }
+  .rack .drip { grid-column: 2 / 5; }
+  .rack .filter { grid-column: 1 / 3; }
+  .panel.bypassed .knobs { opacity: .38; transition: opacity .2s; }
+  .panel { background: linear-gradient(180deg, #17181b, #101113); border: 1px solid var(--line); border-radius: 12px; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .panel h3 { margin: 0; font-size: 11px; letter-spacing: .2em; color: var(--aqua); display: flex; justify-content: space-between; align-items: center; }
+  .panel h3 span { color: var(--dim); font-weight: 500; letter-spacing: .1em; font-size: 9px; }
+  .knobs { display: grid; grid-auto-flow: column; grid-auto-columns: 58px; justify-content: space-evenly; gap: 6px 4px; }
+  .panel > .knobs:last-child, .drip-grid .rows > .knobs:last-child, .drip-grid .rows > .krow:last-child { margin-top: auto; }
+  .segs { display: grid; gap: 4px; }
+  .segs button, .btn { background: #141517; border: 1px solid var(--line-2); color: var(--dim); border-radius: 6px; padding: 5px 4px; font: inherit; font-size: 10px; letter-spacing: .1em; cursor: pointer; }
+  .segs button:hover, .btn:hover { color: var(--text); border-color: #46505d; }
+  .segs button.on { background: var(--aqua); color: #04161a; border-color: var(--aqua); font-weight: 700; }
+  .drip-grid { display: grid; grid-template-columns: 210px 1fr; gap: 14px; align-items: stretch; flex: 1; }
+  .drip-grid .rows { display: flex; flex-direction: column; gap: 8px; }
+  .filter .drip-grid { grid-template-columns: 262px 1fr; }
+  .filter .segs button { padding: 5px 0; font-size: 9px; letter-spacing: .06em; }
+  .drip-grid .rows + .rows { border-left: 1px solid var(--line); padding-left: 12px; }
+
+  .krow { display: flex; align-items: center; gap: 6px; }
+  .krow > .knobs { flex: 1; }
+  .krow > i { writing-mode: vertical-rl; transform: rotate(180deg); font-style: normal; font-size: 7.5px; letter-spacing: .22em; color: #5b6470; font-weight: 600; width: 10px; text-align: center; }
+  .scope { flex: 1; min-height: 34px; border: 1px solid var(--line); border-radius: 7px; background: #0b0d10; position: relative; overflow: hidden; }
+  .scope canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .knob { width: 58px; display: flex; flex-direction: column; align-items: center; gap: 1px; cursor: ns-resize; position: relative; touch-action: none; }
+  .knob svg { width: 42px; height: 42px; overflow: visible; }
+  .knob .tick { stroke: #4a525d; stroke-width: 1.4; stroke-linecap: round; }
+  .knob .track { fill: none; stroke: #2a2e35; stroke-width: 3.2; stroke-linecap: round; }
+  .knob .arc { fill: none; stroke: var(--aqua); stroke-width: 3.2; stroke-linecap: round; }
+  .knob .cap { fill: #1d2026; stroke: #33383f; }
+  .knob .needle { stroke: #fff; stroke-width: 2; stroke-linecap: round; }
+  .knob .kv { font-family: var(--mono); font-size: 10px; line-height: 13px; height: 13px; color: var(--aqua); white-space: nowrap; }
+  .knob .kl { font-size: 8.5px; line-height: 11px; letter-spacing: .14em; color: var(--dim); white-space: nowrap; font-weight: 600; }
+  .knob:hover .cap { stroke: #56606c; }
+  .knob:hover .kl { color: var(--text); }
+  .knob.edge .arc { stroke: var(--amber); }
+  .knob.edge .kv { color: var(--amber); }
+
+  .keys { position: relative; height: 92px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #0a0b0d; }
+  .keys .w, .keys .b { position: absolute; top: 0; border-radius: 0 0 6px 6px; }
+  .keys .w { height: 100%; background: linear-gradient(180deg, #dfe4ea, #f4f6f8); border: 1px solid #9aa3ad; }
+  .keys .b { height: 58%; background: linear-gradient(180deg, #23262b, #111316); z-index: 2; border: 1px solid #000; }
+  .keys .down.w { background: linear-gradient(180deg, #a8eef7, #e3fbfe); }
+  .keys .down.b { background: linear-gradient(180deg, #2b8fa0, #164a54); }
+  .keys .lbl { position: absolute; bottom: 4px; width: 100%; text-align: center; font-size: 8px; color: #6b7480; font-family: var(--mono); }
+  .foot { display: flex; justify-content: space-between; color: #5f6773; font-size: 10px; letter-spacing: .06em; }
+
+  /* dice tray */
+  .dice { display: flex; align-items: stretch; gap: 10px; background: linear-gradient(180deg, #17181b, #101113); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; flex-wrap: wrap; }
+  .dice h3 { margin: 0; font-size: 11px; letter-spacing: .2em; color: var(--aqua); align-self: center; width: 64px; line-height: 1.3; }
+  .dice h3 small { display: block; color: var(--dim); font-size: 8px; letter-spacing: .12em; font-weight: 500; }
+  .dice .set { display: flex; gap: 6px; flex: 1; min-width: 0; }
+  .die { flex: 1; min-width: 64px; display: flex; flex-direction: column; align-items: center; gap: 2px; background: #121316; border: 1px solid var(--line-2); border-radius: 8px; padding: 5px 4px 4px; color: var(--dim); cursor: pointer; font: inherit; }
+  .die svg { width: 30px; height: 30px; transition: transform .25s; }
+  .die svg path, .die svg polygon { fill: #0b1b20; stroke: var(--aqua); stroke-width: 1.6; stroke-linejoin: round; }
+  .die svg .in { fill: none; stroke-width: 1; opacity: .55; }
+  .die b { font-size: 11px; color: var(--text); letter-spacing: .08em; }
+  .die span { font-size: 8px; letter-spacing: .12em; }
+  .die:hover { border-color: #46505d; color: var(--text); }
+  .die:hover svg { transform: rotate(-14deg) scale(1.08); }
+  .die.cursed svg path, .die.cursed svg polygon { stroke: var(--curse); fill: #1a0d22; }
+  .die.cursed b { color: var(--curse); }
+  .dice .locks { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+  .dice .locks small, .dice .hist small { color: var(--dim); font-size: 8px; letter-spacing: .14em; }
+  .dice .locks div { display: flex; gap: 4px; }
+  .lock { background: #141517; border: 1px solid var(--line-2); color: var(--dim); border-radius: 5px; padding: 4px 6px; font: inherit; font-size: 9px; letter-spacing: .1em; cursor: pointer; }
+  .lock.on { border-color: var(--amber); color: var(--amber); background: #221a0c; }
+  .dice .hist { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; }
+  .dice .hist div { display: flex; gap: 4px; align-items: center; }
+  .dice .hist button { background: #141517; border: 1px solid var(--line-2); color: var(--text); border-radius: 5px; width: 26px; height: 24px; font: inherit; cursor: pointer; }
+  .dice .hist button:disabled { opacity: .3; cursor: default; }
+  .dice .hist output { font-family: var(--mono); font-size: 10px; color: var(--aqua); min-width: 38px; text-align: center; }
+  .panel.held h3::after { content: 'LOCKED'; color: var(--amber); font-size: 8px; letter-spacing: .16em; border: 1px solid var(--amber); border-radius: 4px; padding: 1px 4px; }
+  .knob.locked .cap { stroke: var(--amber); stroke-width: 1.6; }
+  .knob.locked .kl { color: var(--amber); }
+  /* the roll, shown on the water */
+  .roll { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 3; text-align: center; }
+  .roll svg { width: 86px; height: 86px; display: block; margin: 0 auto; filter: drop-shadow(0 0 14px rgba(95,212,230,.45)); }
+  .roll svg path, .roll svg polygon { fill: #0b1b20; stroke: var(--aqua); stroke-width: 1.4; stroke-linejoin: round; }
+  .roll svg .in { fill: none; stroke-width: .8; opacity: .55; }
+  .roll svg text { fill: #e9fbfe; font: 700 13px var(--mono); text-anchor: middle; dominant-baseline: central; opacity: 0; }
+  .roll.cursed svg { filter: drop-shadow(0 0 16px rgba(180,108,240,.6)); }
+  .roll.cursed svg path, .roll.cursed svg polygon { stroke: var(--curse); fill: #1a0d22; }
+  .roll .say { margin-top: 6px; font-size: 10px; letter-spacing: .18em; color: #bfeff6; opacity: 0; white-space: nowrap; text-shadow: 0 0 8px #000; }
+  .roll .say em { color: var(--amber); font-style: normal; }
+  .roll.tumble svg { animation: tumble .75s cubic-bezier(.2,.7,.3,1) both; }
+  .roll.landed svg text, .roll.landed .say { opacity: 1; transition: opacity .15s; }
+  .roll.fade { opacity: 0; transition: opacity .6s; }
+  .die.all svg path, .die.all svg polygon { stroke: var(--amber); fill: #1f180b; }
+  .die.all b { color: var(--amber); }
+  .roll.multi .row { display: flex; gap: 10px; justify-content: center; }
+  .roll.multi svg { width: 58px; height: 58px; margin: 0; }
+  .roll.multi .total { margin-top: 4px; font: 700 26px var(--mono); color: var(--amber); opacity: 0; text-shadow: 0 0 12px rgba(226,168,74,.5); }
+  .roll.multi.landed .total { opacity: 1; transition: opacity .2s; }
+  @keyframes tumble { 0% { transform: translate(-160px,-90px) rotate(-540deg) scale(.4); } 70% { transform: translate(8px,4px) rotate(18deg) scale(1.08); } 100% { transform: none; } }
+
+  .start { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(5, 8, 11, .72); z-index: 5; cursor: pointer; }
+  .start div { text-align: center; }
+  .start b { display: block; font-size: 22px; letter-spacing: .4em; color: var(--aqua); }
+  .start small { color: var(--dim); letter-spacing: .14em; }
+  .hbtn { background: #141517; border: 1px solid var(--line-2); color: var(--text); border-radius: 6px; height: 30px; padding: 0 12px; font: inherit; font-size: 10px; letter-spacing: .14em; cursor: pointer; }
+  .hbtn:hover { border-color: #46505d; }
+  .hbtn.save { border-color: var(--aqua-d); color: var(--aqua); }
+  .savebox { position: fixed; z-index: 20; background: #15171a; border: 1px solid var(--line-2); border-radius: 10px; padding: 10px; width: 290px; box-shadow: 0 8px 30px #0009; display: flex; flex-direction: column; gap: 8px; }
+  .savebox small { color: var(--dim); font-size: 9px; letter-spacing: .14em; }
+  .savebox input { background: #0b0c0e; border: 1px solid var(--line-2); color: var(--text); border-radius: 6px; height: 30px; padding: 0 9px; font: inherit; outline: none; }
+  .savebox input:focus { border-color: var(--aqua-d); }
+  .savebox .row { display: flex; gap: 6px; justify-content: flex-end; }
+  .savebox .note { color: var(--amber); font-size: 10px; min-height: 13px; }
+  .toast { position: absolute; right: 12px; bottom: 10px; z-index: 3; font-size: 10px; letter-spacing: .16em; color: var(--aqua); background: rgba(5,12,16,.8); border: 1px solid #23414a; border-radius: 6px; padding: 5px 9px; pointer-events: none; transition: opacity .5s; }
+  .ctx { position: fixed; z-index: 20; background: #15171a; border: 1px solid var(--line-2); border-radius: 8px; padding: 4px; min-width: 150px; box-shadow: 0 8px 30px #0008; }
+  .ctx button { display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--text); padding: 6px 10px; font: inherit; border-radius: 5px; cursor: pointer; }
+  .ctx button:hover { background: #22262c; }
+  .ctx small { display: block; padding: 4px 10px 2px; color: var(--dim); font-size: 9px; letter-spacing: .1em; }
+
+  @media (max-height: 1000px) and (min-width: 981px) {
+    .fluidic, .mid { gap: 7px; }
+    .fluidic { padding: 8px 12px; }
+    header .brand svg { width: 28px; height: 28px; }
+    .brand b { font-size: 15px; }
+    .panel { padding: 7px 10px 6px; gap: 5px; }
+    .knob svg { width: 36px; height: 36px; }
+    .knobs { gap: 3px 4px; }
+    .drip-grid .rows { gap: 4px; }
+    .scope { min-height: 26px; }
+    .dice { padding: 5px 10px; }
+    .die { flex-direction: row; justify-content: center; gap: 7px; padding: 4px; }
+    .die svg { width: 22px; height: 22px; }
+    .die span { display: none; }
+    .keys { height: 70px; }
+    .foot { display: none; }
+  }
+  @media (max-height: 700px) and (min-width: 981px) {
+    .knob svg { width: 32px; height: 32px; }
+    .knob .kl { font-size: 8px; line-height: 10px; }
+    .segs button { padding: 4px 4px; }
+    .keys { height: 60px; }
+  }
+  @media (max-width: 980px) {
+    .rack { grid-template-columns: 1fr 1fr; }
+    .rack .drip, .rack .filter { grid-column: 1 / -1; }
+    .rack > .panel:first-child { grid-column: 1 / -1; }
+    .dice .set { flex-wrap: wrap; flex-basis: 100%; order: 2; }
+    .die { flex: 1 1 88px; }
+    .dice .locks, .dice .hist { flex: 1; }
+    .drip-grid { grid-template-columns: 1fr; }
+    .fluidic > .viz { flex-basis: 220px; }
+  }
+</style>
+</head>
+<body>
+<div class="fluidic" id="fluidic"></div>
+
+<script>
+/* FLUIDIC — self-contained module. Mount it anywhere with Fluidic.mount(element).
+   Every control is a parameter with a stable ID (e.g. "drip.density"): the same IDs become host-automatable
+   VST3 parameters in the plugin build, and the module can later sit inside Continuum Mosaic as its own tab. */
+const Fluidic = (() => {
+  'use strict';
+  const PATTERNS = [['even', 'EVEN'], ['rain', 'RAIN'], ['both', 'BOTH'], ['3d', '3D'], ['splash', 'SPLASH'], ['stream', 'STREAM'], ['storm', 'STORM']];
+  const FTYPES = [['off', 'OFF'], ['lp', 'LP12'], ['lp24', 'LP24'], ['hp', 'HP'], ['bp', 'BP'], ['notch', 'NOTCH']];
+  const WAVES = [['sine', 'SINE'], ['saw', 'SAW'], ['square', 'SQR'], ['noise', 'NOISE']];
+  const pct = (v) => Math.round(v * 100);
+  const hz = (v) => (v >= 1000 ? (v / 1000).toFixed(2) + 'k' : Math.round(v) + '');
+  const ms = (v) => (v >= 1 ? v.toFixed(2) + 's' : Math.round(v * 1000) + 'ms');
+  const signed = (v) => (v > 0 ? '+' : '') + v.toFixed(2);
+
+  // id → spec. `eng` is the engine's name for it; `fx` marks a page-side effect parameter.
+  const PARAMS = [
+    { id: 'exc.wave', name: 'Wave', eng: 'wave', type: 'enum', options: WAVES, def: 'saw' },
+    { id: 'exc.level', name: 'Exciter', label: 'LEVEL', eng: 'oscLevel', min: 0, max: 1, def: 0.6, fmt: pct },
+    { id: 'exc.hold', name: 'Hold', label: 'HOLD', eng: 'hold', min: 0, max: 1, def: 0, fmt: pct },
+    { id: 'exc.octave', name: 'Octave', label: 'OCT', eng: 'octave', min: -2, max: 2, step: 1, def: 0, fmt: (v) => (v > 0 ? '+' : '') + v },
+    { id: 'drip.pattern', name: 'Pattern', eng: 'pattern', type: 'enum', options: PATTERNS, def: 'both' },
+    { id: 'drip.cutoff', name: 'Drop pitch', label: 'PITCH', eng: 'cutoff', min: 80, max: 8000, log: true, def: 900, fmt: hz },
+    { id: 'drip.res', name: 'Ring', label: 'RING', eng: 'res', min: 0, max: 1, def: 0.8, fmt: pct },
+    { id: 'drip.key', name: 'Key track', label: 'KEY', eng: 'key', min: 0, max: 1, def: 0.6, fmt: pct },
+    { id: 'drip.ping', name: 'Ping', label: 'PING', eng: 'ping', min: 0, max: 1, def: 0.85, fmt: pct },
+    { id: 'drip.sweep', name: 'Sweep', label: 'SWEEP', eng: 'sweep', min: -4, max: 4, def: 2.2, fmt: signed },
+    { id: 'drip.fall', name: 'Fall', label: 'FALL', eng: 'fall', min: 0.02, max: 0.4, def: 0.055, fmt: (v) => Math.round(v * 1000) + 'ms' },
+    { id: 'drip.bubble', name: 'Bubble', label: 'BUBBLE', eng: 'bubble', min: 0, max: 1, def: 0.55, fmt: pct },
+    { id: 'drip.wobble', name: 'Wobble', label: 'WOBBLE', eng: 'wobble', min: 0, max: 1, def: 0.4, fmt: pct },
+    { id: 'drip.chirp', name: 'Chirp', label: 'CHIRP', eng: 'chirp', min: 0, max: 1, def: 0, fmt: pct },
+    { id: 'drip.width', name: 'Width', label: 'WIDTH', eng: 'width', min: 0, max: 1, def: 0, fmt: (v) => pct(v) + '%' },
+    { id: 'drip.density', name: 'Density', label: 'DENSITY', eng: 'density', min: 0, max: 1, def: 0.5, fmt: (v) => (Math.abs(v - 0.5) < 0.005 ? '1×' : Math.pow(2, (v - 0.5) * 4).toFixed(v > 0.5 ? 1 : 2) + '×') },
+    { id: 'drip.size', name: 'Size', label: 'SIZE', eng: 'size', min: 0, max: 1, def: 0.5, fmt: (v) => Math.pow(2, (v - 0.5) * 2.4).toFixed(2) + '×' },
+    { id: 'drip.edge', name: 'Edge', label: 'EDGE', eng: 'edge', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)), cls: 'edge' },
+    { id: 'filt.type', name: 'Filter type', eng: 'fType', type: 'enum', options: FTYPES, def: 'off' },
+    { id: 'filt.cutoff', name: 'Filter cutoff', label: 'CUT', eng: 'fCut', min: 30, max: 18000, log: true, def: 2400, fmt: hz },
+    { id: 'filt.res', name: 'Filter resonance', label: 'RES', eng: 'fRes', min: 0, max: 1, def: 0.25, fmt: pct },
+    { id: 'filt.drive', name: 'Filter drive', label: 'DRIVE', eng: 'fDrive', min: 0, max: 1, def: 0, fmt: pct },
+    { id: 'filt.env', name: 'Filter env amount', label: 'ENV', eng: 'fEnv', min: -1, max: 1, def: 0, fmt: signed },
+    { id: 'filt.attack', name: 'Filter env attack', label: 'ATK', eng: 'fA', min: 0.001, max: 3, log: true, def: 0.01, fmt: ms },
+    { id: 'filt.decay', name: 'Filter env decay', label: 'DEC', eng: 'fD', min: 0.02, max: 8, log: true, def: 0.6, fmt: ms },
+    { id: 'filt.key', name: 'Filter key track', label: 'KEY', eng: 'fKey', min: 0, max: 1, def: 0.5, fmt: pct },
+    { id: 'filt.lfoRate', name: 'Filter LFO rate', label: 'RATE', eng: 'fRate', min: 0.02, max: 8, log: true, def: 0.15, fmt: (v) => (v < 1 ? v.toFixed(2) : v.toFixed(1)) + 'Hz' },
+    { id: 'filt.lfoDepth', name: 'Filter LFO depth', label: 'DEPTH', eng: 'fDepth', min: 0, max: 1, def: 0, fmt: pct },
+    { id: 'amp.a', name: 'Attack', label: 'A', eng: 'a', min: 0.001, max: 2, log: true, def: 0.004, fmt: ms },
+    { id: 'amp.d', name: 'Decay', label: 'D', eng: 'd', min: 0.02, max: 3, log: true, def: 0.4, fmt: ms },
+    { id: 'amp.s', name: 'Sustain', label: 'S', eng: 's', min: 0, max: 1, def: 0.7, fmt: pct },
+    { id: 'amp.r', name: 'Release', label: 'R', eng: 'r', min: 0.02, max: 4, log: true, def: 0.5, fmt: ms },
+    { id: 'fx.delayMix', name: 'Delay mix', label: 'DELAY', fx: true, min: 0, max: 0.8, def: 0.18, fmt: pct },
+    { id: 'fx.delayTime', name: 'Delay time', label: 'TIME', fx: true, min: 0.06, max: 0.8, def: 0.28, fmt: ms },
+    { id: 'fx.delayFb', name: 'Delay feedback', label: 'FB', fx: true, min: 0, max: 0.85, def: 0.38, fmt: pct },
+    { id: 'fx.revMix', name: 'Reverb mix', label: 'REVERB', fx: true, min: 0, max: 0.9, def: 0.24, fmt: pct },
+    { id: 'fx.revSize', name: 'Reverb size', label: 'SIZE', fx: true, min: 0.6, max: 8, log: true, def: 2.2, fmt: (v) => v.toFixed(1) + 's' },
+    { id: 'out.level', name: 'Output', label: 'OUT', eng: 'level', min: 0, max: 1, def: 0.8, fmt: pct }
+  ];
+  const BY_ID = Object.fromEntries(PARAMS.map((p) => [p.id, p]));
+
+  const PRESETS = {
+    'Init Drop': {},
+    'Window Rain': { 'drip.pattern': 'rain', 'exc.wave': 'noise', 'exc.level': 0.35, 'exc.hold': 0.15, 'drip.cutoff': 1300, 'drip.res': 0.84, 'drip.width': 0.6, 'amp.a': 0.02, 'amp.s': 0.85, 'amp.r': 1.2, 'fx.revMix': 0.3 },
+    'Cave Splash': { 'drip.pattern': 'splash', 'exc.wave': 'noise', 'exc.level': 0.3, 'exc.hold': 0.05, 'drip.cutoff': 620, 'drip.res': 0.9, 'drip.ping': 1, 'drip.fall': 0.09, 'drip.bubble': 0.8, 'drip.chirp': 0.7, 'drip.density': 0.3, 'drip.size': 1, 'drip.width': 0.85, 'amp.a': 0.2, 'amp.s': 0.9, 'amp.r': 2.5, 'fx.revMix': 0.5, 'fx.revSize': 5.5 },
+    'Glass Stream': { 'drip.pattern': 'stream', 'exc.wave': 'noise', 'exc.level': 0.4, 'exc.hold': 0.2, 'drip.cutoff': 1900, 'drip.res': 0.78, 'drip.ping': 0.75, 'drip.sweep': 1.6, 'drip.density': 0.7, 'drip.size': 0.3, 'drip.width': 0.6, 'amp.a': 0.4, 'amp.s': 0.9, 'amp.r': 1.4, 'fx.revMix': 0.3 },
+    '3D Cavern Pluck': { 'drip.pattern': '3d', 'exc.wave': 'sine', 'exc.level': 0.7, 'drip.cutoff': 760, 'drip.res': 0.86, 'drip.ping': 0.95, 'drip.sweep': 2.8, 'drip.fall': 0.07, 'drip.bubble': 0.7, 'drip.wobble': 0.3, 'drip.width': 0.9, 'amp.d': 0.6, 'amp.s': 0, 'amp.r': 0.5, 'fx.revMix': 0.34, 'fx.revSize': 3.2 },
+    'Bubble Bass': { 'drip.pattern': 'even', 'exc.wave': 'sine', 'exc.level': 0.8, 'exc.octave': -1, 'drip.cutoff': 260, 'drip.res': 0.82, 'drip.ping': 1, 'drip.sweep': 3, 'drip.fall': 0.045, 'drip.bubble': 0.6, 'drip.chirp': 0.5, 'drip.key': 0.9, 'amp.a': 0.002, 'amp.d': 0.22, 'amp.s': 0, 'amp.r': 0.12, 'fx.revMix': 0.08, 'fx.delayMix': 0 },
+    'Sine Meditation': { 'drip.pattern': 'rain', 'exc.wave': 'sine', 'exc.level': 0.7, 'drip.cutoff': 520, 'drip.res': 0.88, 'drip.ping': 0.7, 'drip.sweep': 1.2, 'drip.fall': 0.12, 'drip.bubble': 0.4, 'drip.wobble': 0.5, 'drip.chirp': 0.2, 'drip.density': 0.32, 'drip.width': 0.7, 'filt.type': 'lp24', 'filt.cutoff': 900, 'filt.res': 0.35, 'filt.key': 0.4, 'filt.env': 0.25, 'filt.attack': 1.2, 'filt.decay': 4, 'filt.lfoRate': 0.07, 'filt.lfoDepth': 0.35, 'amp.a': 1.2, 'amp.s': 0.9, 'amp.r': 3.5, 'fx.revMix': 0.55, 'fx.revSize': 6.5, 'fx.delayMix': 0.25, 'fx.delayTime': 0.5, 'fx.delayFb': 0.45 },
+    'Singing Bowl': { 'drip.pattern': '3d', 'exc.wave': 'sine', 'exc.level': 0.75, 'drip.cutoff': 680, 'drip.res': 0.9, 'drip.ping': 0.6, 'drip.sweep': 0.8, 'drip.fall': 0.16, 'drip.bubble': 0.5, 'drip.wobble': 0.6, 'drip.density': 0.35, 'filt.type': 'bp', 'filt.cutoff': 1200, 'filt.res': 0.7, 'filt.key': 0.7, 'filt.lfoRate': 0.11, 'filt.lfoDepth': 0.2, 'amp.a': 0.6, 'amp.d': 2, 'amp.s': 0.6, 'amp.r': 4, 'fx.revMix': 0.6, 'fx.revSize': 7.5, 'fx.delayMix': 0.15 },
+    'Storm Edge': { 'drip.pattern': 'storm', 'exc.wave': 'saw', 'exc.level': 0.4, 'drip.cutoff': 1100, 'drip.res': 0.92, 'drip.ping': 1, 'drip.density': 0.7, 'drip.size': 0.7, 'drip.width': 0.7, 'drip.chirp': 0.4, 'amp.s': 0.9, 'amp.r': 1.5, 'fx.revMix': 0.28 }
+  };
+
+  /* ---------------- dice ----------------
+     Safe ranges keep a roll musical; the cursed die ignores them. Output level and EDGE are never touched by any die. */
+  const SAFE = {
+    'exc.level': [0.35, 0.85], 'exc.hold': [0, 0.5], 'exc.octave': [-1, 1],
+    'drip.cutoff': [180, 3200], 'drip.res': [0.6, 0.92], 'drip.key': [0.3, 0.9], 'drip.ping': [0.4, 1], 'drip.sweep': [-2, 3.5],
+    'drip.fall': [0.03, 0.2], 'drip.bubble': [0.1, 0.9], 'drip.wobble': [0, 0.8], 'drip.chirp': [0, 0.8], 'drip.width': [0, 0.9],
+    'drip.density': [0.2, 0.75], 'drip.size': [0.2, 0.85],
+    'filt.cutoff': [350, 9000], 'filt.res': [0, 0.75], 'filt.drive': [0, 0.5], 'filt.env': [-0.6, 0.8], 'filt.attack': [0.002, 1.5],
+    'filt.decay': [0.08, 5], 'filt.key': [0.2, 0.8], 'filt.lfoRate': [0.03, 4], 'filt.lfoDepth': [0, 0.5],
+    'amp.a': [0.001, 0.8], 'amp.d': [0.08, 2], 'amp.s': [0.2, 1], 'amp.r': [0.15, 3],
+    'fx.delayMix': [0, 0.4], 'fx.delayTime': [0.12, 0.6], 'fx.delayFb': [0.1, 0.6], 'fx.revMix': [0.08, 0.6], 'fx.revSize': [1, 7]
+  };
+  const SAFE_ENUM = { 'drip.pattern': ['even', 'rain', 'both', '3d', 'splash', 'stream'], 'filt.type': ['off', 'lp', 'lp', 'lp24', 'lp24', 'hp', 'bp', 'notch'] };
+  const DICE_POOL = PARAMS.map((p) => p.id).filter((id) => id !== 'out.level' && id !== 'drip.edge');
+  const DROP_SHAPE = ['drip.ping', 'drip.sweep', 'drip.fall', 'drip.bubble', 'drip.wobble', 'drip.chirp', 'drip.size'];
+  const SEC_NAMES = [['exc', 'EXC'], ['drip', 'DRIP'], ['filt', 'FILTER'], ['amp', 'AMP'], ['fx', 'SPACE']];
+  const DIE_SHAPES = {
+    d4: '<polygon points="20,4 37,34 3,34"/><polygon class="in" points="20,4 20,34"/>',
+    d6: '<path d="M7 7h26v26H7z"/><path class="in" d="M7 7l6-4h26l-6 4M33 7v26l6-4V3"/>',
+    d8: '<polygon points="20,3 36,20 20,37 4,20"/><polygon class="in" points="4,20 36,20"/>',
+    d12: '<polygon points="20,4 36.2,15.7 30,34.8 10,34.8 3.8,15.7"/><polygon class="in" points="20,11 27.6,16.5 24.7,25.5 15.3,25.5 12.4,16.5"/>',
+    d20: '<polygon points="20,3 35,11.5 35,28.5 20,37 5,28.5 5,11.5"/><polygon class="in" points="20,11 29,26 11,26"/><path class="in" d="M20 3v8M5 11.5l6 14.5M35 11.5l-6 14.5"/>',
+    all: '<path d="M3 17h14v14H3z"/><polygon points="25,3 35,19 15,19"/><polygon points="29,21 36,25 36,33 29,37 22,33 22,25"/>',
+    cursed: '<polygon points="20,3 35,11.5 35,28.5 20,37 5,28.5 5,11.5"/><polygon class="in" points="20,11 29,26 11,26"/><polygon class="in" points="14,5 17,13 13,19 16,24"/>'
+  };
+  const DICE = [
+    ['d4', 4, 'NUDGE', 'Nudges every unlocked dial a little. Higher roll, bigger nudge.'],
+    ['d6', 6, 'RESHAPE', 'Re-rolls the drop shape: as many of PING SWEEP FALL BUBBLE WOBBLE CHIRP SIZE as the roll.'],
+    ['d8', 8, 'RE-PATTERN', 'New pattern, density and width. 5+ also re-pitches the drops; 8 re-rings them too.'],
+    ['d12', 12, 'REBUILD', 'New exciter, filter and amp around the same drops. 7+ swaps the filter type too.'],
+    ['d20', 20, 'WILD', 'Everything unlocked, inside safe ranges. Natural 20 opens the filter and widens the drops; natural 1 is a fumble.'],
+    ['cursed', 20, 'CURSED', 'Everything unlocked, full ranges, STORM allowed. No safety. EDGE and output level stay yours.'],
+    ['all', 50, 'ALL DICE', 'Throws d4 d6 d8 d12 and d20 together. The total (5–50) decides how much of the sound is re-rolled; the rest is nudged by the d4. A perfect 50 goes big, all ones barely move.']
+  ];
+
+  /* mount(root, opts) — opts are only for embedding FLUIDIC inside another instrument:
+       embedded: true          layout follows the host page instead of filling the window
+       host: async () => ({ ctx, destination })   play through the host's AudioContext
+       keysActive: () => bool  computer keys / MIDI only reach FLUIDIC while this is true
+       engineSrc: string       worklet source, when it isn't next to the page */
+  function mount(root, opts = {}) {
+    const keysActive = opts.keysActive || (() => true);
+    // plugin: set when running inside the FLUIDIC VST3 (see juceBridge at the end of the page)
+    const plugin = opts.plugin || null;
+    let hostVals = null;                 // last values the host knows about (null until the plugin's init arrives)
+    const gestures = new Set();          // dials being dragged right now
+    root.classList.add('fluidic'); if (opts.embedded) root.classList.add('embedded');
+    const values = {};
+    PARAMS.forEach((p) => { values[p.id] = p.def; });
+    const widgets = [];
+    let ctx = null, node = null, fx = null;
+    const viz = { drops: [], ripples: [], sparks: [], peak: 0, cut: 0, voices: 0 };
+    const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+
+    /* ---------------- audio ---------------- */
+    function engineParams() { const o = {}; PARAMS.forEach((p) => { if (p.eng) o[p.eng] = values[p.id]; }); return o; }
+    function sendParams() { if (plugin) return syncToHost(); if (node) node.port.postMessage({ type: 'params', params: engineParams() }); }
+    // plugin: every changed value becomes a host parameter change (one gesture each, or inside a drag)
+    function syncToHost() {
+      if (!plugin || !hostVals) return;
+      PARAMS.forEach((p) => {
+        const v = values[p.id];
+        if (hostVals[p.id] === v) return;
+        hostVals[p.id] = v;
+        plugin.param(p.id, v, gestures.has(p.id) ? 'set' : 'once');
+      });
+    }
+    function persistUi() { if (plugin) plugin.saveUi(JSON.stringify({ preset: current, view: vizView })); }
+    function impulse(seconds) {
+      const len = Math.max(1, Math.floor(ctx.sampleRate * seconds)), buf = ctx.createBuffer(2, len, ctx.sampleRate);
+      for (let c = 0; c < 2; c++) { const d = buf.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+      return buf;
+    }
+    let revTimer = 0;
+    function applyFx() {
+      if (plugin) return syncToHost();
+      if (!fx) return;
+      const t = ctx.currentTime;
+      fx.dSend.gain.setTargetAtTime(values['fx.delayMix'], t, 0.02);
+      fx.dL.delayTime.setTargetAtTime(values['fx.delayTime'], t, 0.03);
+      fx.dR.delayTime.setTargetAtTime(values['fx.delayTime'], t, 0.03);
+      fx.fb.gain.setTargetAtTime(values['fx.delayFb'], t, 0.02);
+      fx.rSend.gain.setTargetAtTime(values['fx.revMix'], t, 0.02);
+      clearTimeout(revTimer);
+      revTimer = setTimeout(() => { if (fx.revSize !== values['fx.revSize']) { fx.revSize = values['fx.revSize']; fx.rev.buffer = impulse(fx.revSize); } }, 160);
+    }
+    async function start() {
+      if (plugin) {   // the plugin does the audio; FLUIDIC just shows and edits it
+        if (!node) {
+          node = { port: { postMessage: (m) => {
+            if (m.type === 'on') plugin.note(m.note, m.vel || 0.85, true);
+            else if (m.type === 'off') plugin.note(m.note, 0, false);
+            else if (m.type === 'panic') plugin.panic();
+          } }, disconnect() {} };
+          plugin.on('frame', (m) => {
+            const now = performance.now();
+            (m.events || []).forEach((ev) => spawn(ev, now));
+            viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
+          });
+        }
+        if (startOverlay.isConnected) startOverlay.remove();
+        return;
+      }
+      if (ctx || starting) return starting;
+      starting = (async () => {
+      let dest = null;
+      if (opts.host) { const h = await opts.host(); ctx = h.ctx; dest = h.destination; }
+      else ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = opts.engineSrc || (document.getElementById('fluidic-engine') || {}).textContent;
+      if (src) {
+        const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+        try { await ctx.audioWorklet.addModule(url); }
+        catch (e) { await ctx.audioWorklet.addModule('data:text/javascript;charset=utf-8,' + encodeURIComponent(src)); }
+      } else await ctx.audioWorklet.addModule('fluidic-worklet.js');
+      node = new AudioWorkletNode(ctx, 'fluidic', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+      const me = node;
+      node.port.onmessage = (e) => {
+        const m = e.data; if (m.type !== 'frame' || node !== me) return;
+        const now = performance.now();
+        m.events.forEach((ev) => spawn(ev, now));
+        viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
+      };
+      // ping-pong delay and reverb sends, then a safety limiter on the output
+      const master = ctx.createGain(), dry = ctx.createGain(), dSend = ctx.createGain(), rSend = ctx.createGain();
+      const dL = ctx.createDelay(2), dR = ctx.createDelay(2), fb = ctx.createGain(), merge = ctx.createChannelMerger(2), tone = ctx.createBiquadFilter();
+      tone.type = 'lowpass'; tone.frequency.value = 5200;
+      const rev = ctx.createConvolver(), limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -2; limiter.ratio.value = 20; limiter.attack.value = 0.002; limiter.release.value = 0.12; limiter.knee.value = 2;
+      node.connect(dry).connect(master);
+      node.connect(dSend).connect(tone).connect(dL);
+      dL.connect(dR); dR.connect(fb).connect(dL);
+      dL.connect(merge, 0, 0); dR.connect(merge, 0, 1); merge.connect(master);
+      node.connect(rSend).connect(rev).connect(master);
+      master.connect(limiter).connect(dest || ctx.destination);
+      fx = { dSend, dL, dR, fb, rSend, rev, revSize: 0 };
+      sendParams(); applyFx();
+      if (startOverlay.isConnected) startOverlay.remove();
+      try { if (navigator.requestMIDIAccess) { const midi = await navigator.requestMIDIAccess(); midi.inputs.forEach((inp) => { inp.addEventListener('midimessage', onMidi); }); } } catch (e) {}
+      })();
+      return starting;
+    }
+    let starting = null;
+    // a timed note from a host (e.g. a Foldspace pad): on now, off after `dur` seconds unless retriggered
+    const lastTrig = new Map();
+    function trigger(note, vel, dur, delay, noSteal) {
+      const go = () => {
+        if (!node) return;
+        const id = (lastTrig.get(note) || 0) + 1; lastTrig.set(note, id);
+        if (!noSteal) node.port.postMessage({ type: 'off', note }); node.port.postMessage({ type: 'on', note, vel: vel || 0.85, noSteal: !!noSteal });
+        const n0 = node; setTimeout(() => { if (node && node === n0 && lastTrig.get(note) === id && !held.has(note)) node.port.postMessage({ type: 'off', note }); }, Math.max(60, dur * 1000));
+      };
+      delay > 0.005 ? setTimeout(go, delay * 1000) : go();
+    }
+    function onMidi(e) {
+      if (!keysActive()) return;
+      const [st, d1, d2] = e.data, cmd = st & 0xf0;
+      if (cmd === 0x90 && d2 > 0) noteOn(d1, d2 / 127); else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) noteOff(d1);
+    }
+    const held = new Set();
+    function noteOn(note, vel) { if (!node || held.has(note)) return; held.add(note); node.port.postMessage({ type: 'on', note, vel: vel || 0.85 }); paintKeys(); }
+    function noteOff(note) { if (!node || !held.has(note)) return; held.delete(note); node.port.postMessage({ type: 'off', note }); paintKeys(); }
+
+    /* ---------------- parameters ---------------- */
+    function set(id, v, silent) {
+      const p = BY_ID[id];
+      if (p.type !== 'enum') { v = Math.min(p.max, Math.max(p.min, Number(v))); if (p.step) v = Math.round(v / p.step) * p.step; }
+      values[id] = v;
+      if (p.fx) applyFx(); else sendParams();
+      if (!silent) widgets.forEach((w) => w.id === id && w.paint());
+    }
+    const norm = (p, v) => (p.log ? Math.log(v / p.min) / Math.log(p.max / p.min) : (v - p.min) / (p.max - p.min));
+    const fromNorm = (p, t) => (p.log ? p.min * Math.pow(p.max / p.min, t) : p.min + (p.max - p.min) * t);
+
+    let menu = null;
+    const lockedIds = new Set(), lockedSecs = new Set();
+    function closeMenu() { if (menu) { menu.remove(); menu = null; } }
+    document.addEventListener('pointerdown', (e) => { if (menu && !menu.contains(e.target)) closeMenu(); });
+
+    function knob(parent, id) {
+      const p = BY_ID[id], n = el('div', 'knob' + (p.cls ? ' ' + p.cls : '')); n.dataset.id = id;
+      n.title = p.name + '  ·  drag, wheel, double-click resets, right-click for options';
+      n.innerHTML = '<svg viewBox="0 0 48 48"><circle class="track" cx="24" cy="24" r="17"/><circle class="arc" cx="24" cy="24" r="17"/><line class="tick" x1="24" y1="3.2" x2="24" y2="5.6"/><circle class="cap" cx="24" cy="24" r="11.5"/><line class="needle" x1="24" y1="24" x2="24" y2="14"/></svg>';
+      const kv = el('div', 'kv'), kl = el('div', 'kl', p.label);
+      n.append(kv, kl); parent.append(n);
+      const C = 2 * Math.PI * 17, SW = C * 0.75, arc = n.querySelector('.arc'), track = n.querySelector('.track'), needle = n.querySelector('.needle');
+      [arc, track].forEach((c) => c.setAttribute('transform', 'rotate(135 24 24)'));
+      track.style.strokeDasharray = SW + ' ' + C;
+      const bipolar = p.min < 0 && p.max > 0, t0 = bipolar ? norm(p, 0) : 0;
+      if (bipolar) n.classList.add('bi');
+      n.querySelector('.tick').setAttribute('transform', 'rotate(' + (-135 + norm(p, p.def) * 270) + ' 24 24)');
+      const paint = () => {
+        const t = norm(p, values[id]), a = Math.min(t, t0), b = Math.max(t, t0);
+        arc.style.strokeDasharray = (b - a) * SW + ' ' + C; arc.style.strokeDashoffset = String(-a * SW);
+        arc.style.visibility = b - a < 0.004 ? 'hidden' : 'visible';
+        needle.setAttribute('transform', 'rotate(' + (-135 + t * 270) + ' 24 24)');
+        kv.textContent = p.fmt(values[id]);
+      };
+      let drag = null;
+      n.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return; n.setPointerCapture(e.pointerId); drag = { y: e.clientY, t: norm(p, values[id]) };
+        if (plugin && !gestures.has(id)) { gestures.add(id); plugin.param(id, null, 'begin'); }
+      });
+      n.addEventListener('pointermove', (e) => { if (!drag) return; const span = e.shiftKey ? 900 : 160; set(id, fromNorm(p, Math.min(1, Math.max(0, drag.t + (drag.y - e.clientY) / span)))); });
+      const end = () => { drag = null; if (plugin && gestures.delete(id)) plugin.param(id, null, 'end'); };
+      n.addEventListener('pointerup', end); n.addEventListener('pointercancel', end);
+      n.addEventListener('wheel', (e) => { e.preventDefault(); set(id, fromNorm(p, Math.min(1, Math.max(0, norm(p, values[id]) + (e.deltaY > 0 ? -1 : 1) * (e.shiftKey ? 0.004 : 0.02))))); }, { passive: false });
+      n.addEventListener('dblclick', () => set(id, p.def));
+      n.addEventListener('contextmenu', (e) => {
+        e.preventDefault(); closeMenu();
+        menu = el('div', 'ctx'); menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
+        menu.append(el('small', '', p.name.toUpperCase() + '  ·  ' + id));
+        const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { fn(); closeMenu(); }); menu.append(b); };
+        item('Reset to default', () => set(id, p.def));
+        item('Set to minimum', () => set(id, p.min));
+        item('Set to maximum', () => set(id, p.max));
+        if (DICE_POOL.includes(id)) item(lockedIds.has(id) ? 'Unlock for dice' : 'Lock from dice', () => { lockedIds.has(id) ? lockedIds.delete(id) : lockedIds.add(id); paintLocks(); });
+        root.append(menu);
+      });
+      widgets.push({ id, paint }); paint();
+      return n;
+    }
+    function segs(parent, id, cols) {
+      const p = BY_ID[id], box = el('div', 'segs'); box.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+      const btns = p.options.map(([v, label]) => { const b = el('button', '', label); b.type = 'button'; b.addEventListener('click', () => set(id, v)); box.append(b); return [v, b]; });
+      parent.append(box);
+      const paint = () => btns.forEach(([v, b]) => b.classList.toggle('on', values[id] === v));
+      widgets.push({ id, paint }); paint();
+    }
+
+    function krow(parent, caption, ids) {
+      const r = el('div', 'krow'), k = el('div', 'knobs'); r.append(el('i', '', caption), k);
+      ids.forEach((id) => knob(k, id)); parent.append(r); return r;
+    }
+    const scopes = [];
+    function scope(parent, draw, ids) {
+      const box = el('div', 'scope'), cv = el('canvas'); box.append(cv); parent.append(box);
+      const paint = () => {
+        const w = box.clientWidth, h = box.clientHeight; if (!w || !h) return;
+        const d = Math.min(2, window.devicePixelRatio || 1); cv.width = w * d; cv.height = h * d;
+        const c = cv.getContext('2d'); c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
+        c.strokeStyle = '#1b2026'; c.lineWidth = 1; c.beginPath(); c.moveTo(0, h / 2 + 0.5); c.lineTo(w, h / 2 + 0.5); c.stroke();
+        draw(c, w, h);
+      };
+      ids.forEach((id) => widgets.push({ id, paint }));
+      scopes.push(paint); if (window.ResizeObserver) new ResizeObserver(paint).observe(box);
+      return paint;
+    }
+    function strokeGlow(c, col) { c.strokeStyle = col; c.lineWidth = 1.6; c.shadowColor = col; c.shadowBlur = 6; c.stroke(); c.shadowBlur = 0; }
+    // the exciter's wave, drawn as two cycles
+    let scopeNoise = Array.from({ length: 64 }, () => Math.random() * 2 - 1);
+    function drawWave(c, w, h) {
+      const wave = values['exc.wave'], lvl = 0.25 + values['exc.level'] * 0.7, hold = values['exc.hold'], amp = (h / 2 - 4) * lvl;
+      c.beginPath();
+      for (let x = 0; x <= w; x++) {
+        const ph = (x / w * 2) % 1; let y;
+        if (wave === 'sine') y = Math.sin(ph * Math.PI * 2);
+        else if (wave === 'saw') y = 1 - 2 * ph;
+        else if (wave === 'square') y = ph < 0.5 ? 1 : -1;
+        else { const held = scopeNoise[(ph * 63) | 0], free = Math.sin(x * 12.9898 + 78.233) * 43758.5453 % 1; y = held * hold + free * (1 - hold); }
+        x === 0 ? c.moveTo(x, h / 2 - y * amp) : c.lineTo(x, h / 2 - y * amp);
+      }
+      strokeGlow(c, '#5fd4e6');
+    }
+    // the filter's response: the same state-variable filter the engine runs, cutoff at middle C
+    function drawFilter(c, w, h) {
+      const type = values['filt.type'], fc = values['filt.cutoff'], res = values['filt.res'];
+      const k = 2 - 1.96 * res, k24 = 2 - 1.6 * res, bpg = Math.pow(k, 0.7) * 1.4, top = 18, bot = -36;
+      const mag = (f) => {
+        const x = f / fc, re = 1 - x * x;
+        const den = (kk) => Math.sqrt(re * re + (kk * x) * (kk * x));
+        if (type === 'lp') return 1 / den(k);
+        if (type === 'lp24') { const r2 = 1 / den(k24); return r2 * r2; }
+        if (type === 'hp') return x * x / den(k);
+        if (type === 'bp') return bpg * x / den(k);
+        if (type === 'notch') return Math.abs(re) / den(k);
+        return 1;
+      };
+      const yOf = (db) => 3 + (top - Math.max(bot, Math.min(top, db))) / (top - bot) * (h - 6);
+      c.strokeStyle = '#1b2026'; c.beginPath(); for (const f of [100, 1000, 10000]) { const x = Math.log(f / 20) / Math.log(1000) * w + 0.5; c.moveTo(x, 0); c.lineTo(x, h); } c.stroke();
+      c.beginPath();
+      for (let x = 0; x <= w; x++) { const f = 20 * Math.pow(1000, x / w), y = yOf(20 * Math.log10(mag(f) + 1e-9)); x === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }
+      const off = type === 'off';
+      if (!off) { c.save(); c.lineTo(w, h); c.lineTo(0, h); c.closePath(); c.fillStyle = 'rgba(95,212,230,.10)'; c.fill(); c.restore(); }
+      c.beginPath();
+      for (let x = 0; x <= w; x++) { const f = 20 * Math.pow(1000, x / w), y = yOf(20 * Math.log10(mag(f) + 1e-9)); x === 0 ? c.moveTo(x, y) : c.lineTo(x, y); }
+      strokeGlow(c, off ? '#3a434d' : '#5fd4e6');
+      if (!off) { const x = Math.log(fc / 20) / Math.log(1000) * w; c.fillStyle = '#e7ebf1'; c.beginPath(); c.arc(x, yOf(20 * Math.log10(mag(fc) + 1e-9)), 2.4, 0, Math.PI * 2); c.fill(); }
+    }
+
+    /* ---------------- layout ---------------- */
+    root.innerHTML = '';
+    const header = el('header');
+    header.innerHTML = '<div class="brand"><svg viewBox="0 0 36 36"><rect x="1" y="1" width="34" height="34" rx="8" fill="#08151a" stroke="#5fd4e6" stroke-width="1.2"/><path d="M18 6c-5 7-8 11.5-8 15.5a8 8 0 0 0 16 0C26 17.5 23 13 18 6z" fill="none" stroke="#5fd4e6" stroke-width="1.6"/><path d="M13.5 22.5a4.6 4.6 0 0 0 4 4" fill="none" stroke="#5fd4e6" stroke-width="1.3" opacity=".6"/></svg><div><b>FLUIDIC</b><small>DRIP SYNTHESIS · ' + (plugin ? 'VST3' : 'PROTOTYPE') + '</small></div></div>';
+    header.append(el('div', 'spacer'));
+    const presetSel = el('select', 'preset');
+    presetSel.addEventListener('change', () => { const v = presetSel.value; v.startsWith('u:') ? loadUser(v.slice(2)) : loadPreset(v.slice(2)); });
+    const saveBtn = el('button', 'hbtn save', 'SAVE'); saveBtn.type = 'button'; saveBtn.title = 'Save the current sound to your bank';
+    const bankBtn = el('button', 'hbtn', 'BANK ▾'); bankBtn.type = 'button'; bankBtn.title = 'Manage your saved sounds';
+    header.append(presetSel, saveBtn, bankBtn);
+    const meter = el('div', 'meter'); meter.innerHTML = 'LEVEL <i><b></b></i> <span class="vc">0 VOICES</span>'; header.append(meter);
+    root.append(header);
+
+    const vizBox = el('div', 'viz'), canvas = el('canvas'), hud = el('div', 'hud');
+    const startOverlay = el('div', 'start'); startOverlay.innerHTML = '<div><b>FLUIDIC</b><small>CLICK TO START AUDIO · THEN PLAY THE KEYS</small></div>';
+    const viewSw = el('div', 'view');
+    let vizView = 'top'; try { vizView = localStorage.getItem('fluidic-view') || 'top'; } catch (e) {}
+    const viewBtns = [['side', 'SIDE'], ['top', 'TOP']].map(([v, label]) => { const b = el('button', '', label); b.addEventListener('click', () => { vizView = v; try { localStorage.setItem('fluidic-view', v); } catch (e) {} persistUi(); viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === v)); viz.sparks.length = 0; }); b.dataset.v = v; viewSw.append(b); return b; });
+    viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === vizView));
+    vizBox.append(canvas, hud, viewSw, startOverlay); root.append(vizBox);
+    const mid = el('div', 'mid'); root.append(mid);   // the only part that scrolls, and only on short windows
+    startOverlay.addEventListener('click', async () => { startOverlay.remove(); try { await start(); await ctx.resume(); } catch (e) { hud.textContent = 'AUDIO COULD NOT START: ' + e.message; } });
+
+    const rack = el('div', 'rack');
+    const pExc = el('section', 'panel'); pExc.dataset.sec = 'exc'; pExc.append(el('h3', '', 'EXCITER'));
+    segs(pExc, 'exc.wave', 4);
+    scope(pExc, drawWave, ['exc.wave', 'exc.level', 'exc.hold']);
+    const ek = el('div', 'knobs'); ['exc.level', 'exc.hold', 'exc.octave'].forEach((id) => knob(ek, id)); pExc.append(ek);
+    const pDrip = el('section', 'panel drip'); pDrip.dataset.sec = 'drip'; const dh = el('h3', '', 'DRIP'); dh.append(el('span', '', 'PATTERN · DROP · SHAPE')); pDrip.append(dh);
+    const grid = el('div', 'drip-grid'), left = el('div', 'rows'), right = el('div', 'rows');
+    segs(left, 'drip.pattern', 4);
+    const lk = el('div', 'knobs'); ['drip.cutoff', 'drip.res', 'drip.key'].forEach((id) => knob(lk, id)); left.append(lk);
+    krow(right, 'DROP', ['drip.ping', 'drip.sweep', 'drip.fall', 'drip.bubble', 'drip.wobble']);
+    krow(right, 'SPREAD', ['drip.chirp', 'drip.width', 'drip.density', 'drip.size', 'drip.edge']); grid.append(left, right); pDrip.append(grid);
+    const pFilt = el('section', 'panel filter'); pFilt.dataset.sec = 'filt'; const fh = el('h3', '', 'FILTER'); fh.append(el('span', '', 'AFTER THE DRIPS · ENV · LFO')); pFilt.append(fh);
+    const fgrid = el('div', 'drip-grid'), fleft = el('div', 'rows'), fright = el('div', 'rows');
+    segs(fleft, 'filt.type', 6);
+    scope(fleft, drawFilter, ['filt.type', 'filt.cutoff', 'filt.res']);
+    const flk = el('div', 'knobs'); ['filt.cutoff', 'filt.res', 'filt.drive'].forEach((id) => knob(flk, id)); fleft.append(flk);
+    krow(fright, 'ENV', ['filt.env', 'filt.attack', 'filt.decay']);
+    krow(fright, 'KEY · LFO', ['filt.key', 'filt.lfoRate', 'filt.lfoDepth']); fgrid.append(fleft, fright); pFilt.append(fgrid);
+    widgets.push({ id: 'filt.type', paint: () => pFilt.classList.toggle('bypassed', values['filt.type'] === 'off') });
+    const pAmp = el('section', 'panel'); pAmp.dataset.sec = 'amp'; pAmp.append(el('h3', '', 'AMP'));
+    krow(pAmp, 'RISE', ['amp.a', 'amp.d']); const ar2 = krow(pAmp, 'HOLD · FADE', ['amp.s', 'amp.r']); ar2.style.marginTop = 'auto';
+    const pFx = el('section', 'panel'); pFx.dataset.sec = 'fx'; pFx.append(el('h3', '', 'SPACE'));
+    krow(pFx, 'DELAY', ['fx.delayMix', 'fx.delayTime', 'fx.delayFb']); const fr2 = krow(pFx, 'VERB · OUT', ['fx.revMix', 'fx.revSize', 'out.level']); fr2.style.marginTop = 'auto';
+    rack.append(pExc, pDrip, pFilt, pAmp, pFx); mid.append(rack);
+
+    /* ---------------- dice tray ---------------- */
+    const tray = el('div', 'dice');
+    const th = el('h3', '', 'ROLL'); th.append(el('small', '', 'THE DICE')); tray.append(th);
+    const dset = el('div', 'set');
+    DICE.forEach(([key, sides, verb, tip]) => {
+      const b = el('button', 'die' + (key === 'cursed' ? ' cursed' : '')); b.type = 'button'; b.title = tip;
+      b.innerHTML = '<svg viewBox="0 0 40 40">' + DIE_SHAPES[key] + '</svg>';
+      if (key === 'all') b.classList.add('all');
+      b.append(el('b', '', key === 'cursed' ? 'd20' : key === 'all' ? 'SET' : key), el('span', '', verb));
+      b.addEventListener('click', () => (key === 'all' ? rollAll() : roll(key, sides)));
+      dset.append(b);
+    });
+    tray.append(dset);
+    const locks = el('div', 'locks'); locks.append(el('small', '', 'LOCK FROM DICE'));
+    const lockRow = el('div');
+    const lockBtns = SEC_NAMES.map(([sec, label]) => { const b = el('button', 'lock', label); b.type = 'button'; b.addEventListener('click', () => { lockedSecs.has(sec) ? lockedSecs.delete(sec) : lockedSecs.add(sec); paintLocks(); }); lockRow.append(b); return [sec, b]; });
+    locks.append(lockRow); tray.append(locks);
+    const hist = el('div', 'hist'); hist.append(el('small', '', 'ROLL HISTORY'));
+    const hrow = el('div'), back = el('button', '', '◀'), fwd = el('button', '', '▶'), hpos = el('output');
+    back.title = 'Back to the previous sound'; fwd.title = 'Forward again';
+    hrow.append(back, hpos, fwd); hist.append(hrow); tray.append(hist);
+    mid.append(tray);
+    const moreCue = () => mid.classList.toggle('more', mid.scrollTop + mid.clientHeight < mid.scrollHeight - 2);
+    mid.addEventListener('scroll', moreCue); window.addEventListener('resize', moreCue);
+    if (window.ResizeObserver) new ResizeObserver(moreCue).observe(mid); moreCue();
+
+    function paintLocks() {
+      lockBtns.forEach(([sec, b]) => b.classList.toggle('on', lockedSecs.has(sec)));
+      root.querySelectorAll('.panel[data-sec]').forEach((pn) => pn.classList.toggle('held', lockedSecs.has(pn.dataset.sec)));
+      root.querySelectorAll('.knob[data-id]').forEach((k) => { const id = k.dataset.id, on = lockedIds.has(id) || lockedSecs.has(id.split('.')[0]); k.classList.toggle('locked', on && DICE_POOL.includes(id)); });
+    }
+    const free = (id) => DICE_POOL.includes(id) && !lockedIds.has(id) && !lockedSecs.has(id.split('.')[0]);
+
+    // history: every roll (and preset load) is a step you can walk back through
+    let history = [], hp = -1;
+    const snap = () => Object.assign({}, values);
+    function commit() { history = history.slice(0, hp + 1); history.push(snap()); if (history.length > 40) history.shift(); hp = history.length - 1; paintHist(); }
+    function restore(i) { hp = i; Object.assign(values, history[i]); widgets.forEach((w) => w.paint()); sendParams(); applyFx(); paintHist(); }
+    function paintHist() { back.disabled = hp <= 0; fwd.disabled = hp >= history.length - 1; hpos.textContent = (hp + 1) + '/' + history.length; }
+    paintHist(); paintLocks();
+    back.addEventListener('click', () => { if (hp > 0) restore(hp - 1); });
+    fwd.addEventListener('click', () => { if (hp < history.length - 1) restore(hp + 1); });
+
+    const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+    function rollParam(id, cursed) {
+      const p = BY_ID[id];
+      if (p.type === 'enum') { values[id] = cursed || !SAFE_ENUM[id] ? pick(p.options)[0] : pick(SAFE_ENUM[id]); return; }
+      const [lo, hi] = cursed ? [p.min, p.max] : SAFE[id] || [p.min, p.max];
+      const a = norm(p, lo), b = norm(p, hi);
+      let v = fromNorm(p, a + (b - a) * Math.random());
+      if (p.step) v = Math.round(v / p.step) * p.step;
+      values[id] = Math.min(p.max, Math.max(p.min, v));
+    }
+    function nudge(id, amt) {
+      const p = BY_ID[id]; if (p.type === 'enum' || p.step) return;
+      const [lo, hi] = SAFE[id] || [p.min, p.max];
+      let t = norm(p, values[id]) + (Math.random() * 2 - 1) * amt;
+      const a = Math.min(norm(p, lo), norm(p, values[id])), b = Math.max(norm(p, hi), norm(p, values[id]));
+      values[id] = fromNorm(p, Math.min(b, Math.max(a, t)));
+    }
+    function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+    function roll(key, sides) {
+      if (history.length) history[hp] = snap();          // keep any hand tweaks made since the last step
+      else commit();
+      const n = 1 + ((Math.random() * sides) | 0);
+      const pool = DICE_POOL.filter(free);
+      let say = '';
+      if (!pool.length) say = 'EVERYTHING IS LOCKED';
+      else if (key === 'd4') { pool.forEach((id) => nudge(id, n * 0.025)); say = 'NUDGED ' + pool.length + ' DIALS'; }
+      else if (key === 'd6') { const ids = shuffle(DROP_SHAPE.filter(free)).slice(0, n); ids.forEach((id) => rollParam(id)); say = ids.length ? 'RESHAPED ' + ids.length + ' DROP ' + (ids.length === 1 ? 'CONTROL' : 'CONTROLS') : 'DROP SHAPE IS LOCKED'; }
+      else if (key === 'd8') {
+        const ids = ['drip.pattern', 'drip.density', 'drip.width'].concat(n >= 5 ? ['drip.cutoff'] : [], n === 8 ? ['drip.res'] : []).filter(free);
+        ids.forEach((id) => rollParam(id)); say = ids.length ? 'NEW PATTERN · ' + (PATTERNS.find((x) => x[0] === values['drip.pattern']) || ['', ''])[1] : 'PATTERN IS LOCKED';
+      }
+      else if (key === 'd12') {
+        const ids = pool.filter((id) => /^(exc|filt|amp)\./.test(id) && (id !== 'filt.type' || n >= 7));
+        ids.forEach((id) => rollParam(id)); say = ids.length ? 'REBUILT ' + ids.length + ' DIALS AROUND THE DROPS' : 'NOTHING FREE TO REBUILD';
+      }
+      else if (key === 'd20') {
+        if (n === 1) { pool.forEach((id) => nudge(id, 0.02)); say = '<em>FUMBLE</em> · A TINY NUDGE'; }
+        else {
+          pool.forEach((id) => rollParam(id));
+          if (n === 20) { if (free('filt.type')) values['filt.type'] = pick(['lp24', 'bp']); if (free('drip.width')) values['drip.width'] = 0.85 + Math.random() * 0.15; say = '<em>NATURAL 20</em> · EVERYTHING, DONE WELL'; }
+          else say = 'ROLLED ' + pool.length + ' DIALS';
+        }
+      }
+      else if (key === 'cursed') { pool.forEach((id) => rollParam(id, true)); say = '<em>CURSED</em> · NO SAFE RANGES'; }
+      widgets.forEach((w) => w.paint()); sendParams(); applyFx();
+      if (pool.length) commit();
+      if (pool.length) lastRoll = (key === 'cursed' ? 'cursed d20' : key) + ' ' + n;
+      showRoll(key, n, say);
+    }
+
+    const FAMILY = [['d4', 4], ['d6', 6], ['d8', 8], ['d12', 12], ['d20', 20]];
+    function rollAll() {
+      if (history.length) history[hp] = snap(); else commit();
+      const nums = FAMILY.map(([, sides]) => 1 + ((Math.random() * sides) | 0));
+      const total = nums.reduce((a, b) => a + b, 0);
+      const pool = DICE_POOL.filter(free);
+      let say;
+      if (!pool.length) say = 'EVERYTHING IS LOCKED';
+      else if (total === 5) { pool.forEach((id) => nudge(id, 0.015)); say = '<em>ALL ONES</em> · BARELY A RIPPLE'; }
+      else {
+        const share = total / 50, count = Math.max(1, Math.round(share * pool.length));
+        const re = shuffle(pool).slice(0, count), reSet = new Set(re);
+        re.forEach((id) => rollParam(id));
+        pool.forEach((id) => { if (!reSet.has(id)) nudge(id, nums[0] * 0.02); });
+        if (total === 50) { if (free('filt.type')) values['filt.type'] = pick(['lp24', 'bp']); if (free('drip.width')) values['drip.width'] = 0.85 + Math.random() * 0.15; say = '<em>PERFECT 50</em> · THE WHOLE SOUND, DONE WELL'; }
+        else say = 'RE-ROLLED ' + count + ' OF ' + pool.length + ' DIALS · NUDGED THE REST';
+      }
+      widgets.forEach((w) => w.paint()); sendParams(); applyFx();
+      if (pool.length) commit();
+      if (pool.length) lastRoll = 'set ' + total;
+      showFamily(nums, total, say);
+    }
+    function showFamily(nums, total, say) {
+      rollTimers.forEach(clearTimeout); rollTimers = []; if (rollEl) rollEl.remove();
+      rollEl = el('div', 'roll multi');
+      const row = el('div', 'row');
+      FAMILY.forEach(([key], i) => {
+        const w = el('div'); w.innerHTML = '<svg viewBox="0 0 40 40">' + DIE_SHAPES[key] + '<text x="20" y="' + (key === 'd4' ? 26 : 21) + '">' + nums[i] + '</text></svg>';
+        const svg = w.firstChild; svg.style.animation = 'tumble .75s cubic-bezier(.2,.7,.3,1) ' + (i * 0.09) + 's both';
+        row.append(svg);
+      });
+      rollEl.append(row, el('div', 'total', String(total)));
+      const sayEl = el('div', 'say'); sayEl.innerHTML = 'ALL DICE · ' + nums.join(' + ') + ' = ' + total + ' · ' + say; rollEl.append(sayEl);
+      vizBox.append(rollEl);
+      const me = rollEl;
+      FAMILY.forEach((_, i) => rollTimers.push(setTimeout(() => {
+        const now = performance.now(), x = W / 2 + (i - 2) * 68, y = H / 2 - 12;
+        for (let r = 0; r < 3; r++) viz.ripples.push({ x, y, t0: now + r * 130, size: 1, hue: 40 + i * 30, speed: 60 });
+        for (let k = 0; k < 10; k++) viz.sparks.push({ x, y: 0, ox: x, oy: y, ang: Math.random() * Math.PI * 2, dist: 24 + Math.random() * 40, vx: (Math.random() - 0.5) * 200, vy: -(100 + Math.random() * 200), t0: now, hue: 190, r: 1 + Math.random() * 1.6 });
+      }, 720 + i * 90)));
+      rollTimers.push(setTimeout(() => me.classList.add('landed'), 720 + 4 * 90));
+      rollTimers.push(setTimeout(() => me.classList.add('fade'), 3200));
+      rollTimers.push(setTimeout(() => me.remove(), 3900));
+    }
+
+    let rollEl = null, rollTimers = [];
+    function showRoll(key, n, say) {
+      rollTimers.forEach(clearTimeout); rollTimers = []; if (rollEl) rollEl.remove();
+      rollEl = el('div', 'roll tumble' + (key === 'cursed' ? ' cursed' : ''));
+      rollEl.innerHTML = '<svg viewBox="0 0 40 40">' + DIE_SHAPES[key] + '<text x="20" y="' + (key === 'd4' ? 26 : 21) + '">' + n + '</text></svg><div class="say">' + (key === 'cursed' ? 'd20' : key).toUpperCase() + ' · ' + n + ' · ' + say + '</div>';
+      vizBox.append(rollEl);
+      const me = rollEl;
+      rollTimers.push(setTimeout(() => {
+        me.classList.add('landed');
+        // the die lands in the water
+        const now = performance.now(), hue = key === 'cursed' ? 280 : 190;
+        for (let r = 0; r < 4; r++) viz.ripples.push({ x: W / 2, y: H / 2, t0: now + r * 140, size: 1.3, hue, speed: 70 });
+        for (let s = 0; s < 22; s++) viz.sparks.push({ x: W / 2, y: 0, ox: W / 2, oy: H / 2, ang: Math.random() * Math.PI * 2, dist: 40 + Math.random() * 60, vx: (Math.random() - 0.5) * 260, vy: -(120 + Math.random() * 260), t0: now, hue, r: 1 + Math.random() * 2 });
+      }, 720));
+      rollTimers.push(setTimeout(() => me.classList.add('fade'), 2300));
+      rollTimers.push(setTimeout(() => me.remove(), 3000));
+    }
+
+    /* ---------------- keyboard ---------------- */
+    const keys = el('div', 'keys'); root.append(keys);
+    let base = 48;
+    const KEYMAP = 'awsedftgyhujkolp;'.split('');
+    const isBlack = (n) => [1, 3, 6, 8, 10].includes(n % 12);
+    const keyEls = new Map();
+    function buildKeys() {
+      keys.innerHTML = ''; keyEls.clear();
+      const first = base, last = base + 29, whites = [];
+      for (let n = first; n <= last; n++) if (!isBlack(n)) whites.push(n);
+      const W = 100 / whites.length;
+      whites.forEach((n, i) => {
+        const k = el('div', 'w'); k.style.left = i * W + '%'; k.style.width = W + '%'; k.dataset.note = n;
+        const ki = n - base; if (ki >= 0 && ki < KEYMAP.length) k.append(el('div', 'lbl', KEYMAP[ki].toUpperCase()));
+        if (n % 12 === 0) k.append(Object.assign(el('div', 'lbl', 'C' + (n / 12 - 1)), { style: 'bottom:16px' }));
+        keys.append(k); keyEls.set(n, k);
+      });
+      for (let n = first; n <= last; n++) if (isBlack(n)) {
+        const wi = whites.indexOf(n - 1); if (wi < 0) continue;
+        const k = el('div', 'b'); k.style.left = (wi + 1) * W - W * 0.3 + '%'; k.style.width = W * 0.6 + '%'; k.dataset.note = n;
+        keys.append(k); keyEls.set(n, k);
+      }
+      paintKeys();
+    }
+    function paintKeys() { keyEls.forEach((k, n) => k.classList.toggle('down', held.has(n))); }
+    let mouseNote = null;
+    keys.addEventListener('pointerdown', (e) => { const n = +e.target.closest('[data-note]')?.dataset.note; if (!n) return; keys.setPointerCapture(e.pointerId); mouseNote = n; noteOn(n, 0.85); });
+    keys.addEventListener('pointermove', (e) => {
+      if (mouseNote == null) return;
+      const t = document.elementFromPoint(e.clientX, e.clientY), n = t && t.closest && t.closest('[data-note]') ? +t.closest('[data-note]').dataset.note : null;
+      if (n && n !== mouseNote) { noteOff(mouseNote); mouseNote = n; noteOn(n, 0.85); }
+    });
+    const mouseUp = () => { if (mouseNote != null) { noteOff(mouseNote); mouseNote = null; } };
+    keys.addEventListener('pointerup', mouseUp); keys.addEventListener('pointercancel', mouseUp);
+    // embedded: listen first (capture) and keep the keys from the host while FLUIDIC is showing
+    const keyOpts = opts.embedded ? true : false;
+    window.addEventListener('keydown', (e) => {
+      if (!keysActive() || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase(), i = KEYMAP.indexOf(k);
+      if (k !== 'z' && k !== 'x' && i < 0) return;
+      if (opts.embedded) e.stopPropagation();
+      if (e.repeat) return;
+      if (k === 'z') { base = Math.max(24, base - 12); buildKeys(); return; }
+      if (k === 'x') { base = Math.min(84, base + 12); buildKeys(); return; }
+      noteOn(base + i, 0.85);
+    }, keyOpts);
+    window.addEventListener('keyup', (e) => {
+      const i = KEYMAP.indexOf(e.key.toLowerCase()); if (i < 0) return;
+      if (opts.embedded && keysActive()) e.stopPropagation();
+      noteOff(base + i);
+    }, keyOpts);
+    buildKeys();
+    const foot = el('div', 'foot');
+    foot.innerHTML = '<span>A W S E D F T G Y H U J K play · Z / X octave · MIDI keyboards work too</span><span>drag a dial · Shift for fine · double-click resets · right-click for options</span>';
+    root.append(foot);
+
+    /* ---------------- user bank ----------------
+       Saved sounds live in this browser (localStorage) and can be exported/imported as a .json bank file.
+       Each sound is stored by parameter ID, the same IDs the plugin build will use. */
+    const BANK_KEY = 'fluidic-user-bank-v1';
+    let bank = {};
+    if (!plugin) { try { bank = JSON.parse(localStorage.getItem(BANK_KEY) || '{}') || {}; } catch (e) { bank = {}; } }
+    let bankStored = true;
+    function storeBank() {
+      if (plugin) { plugin.saveBank(JSON.stringify(bank)); bankStored = true; return; }   // %APPDATA%\FLUIDIC\user-bank.json
+      try { localStorage.setItem(BANK_KEY, JSON.stringify(bank)); bankStored = true; } catch (e) { bankStored = false; }
+    }
+    function importBankText(text) {
+      try {
+        const data = JSON.parse(text), sounds = data && (data.sounds || data);
+        let added = 0;
+        Object.keys(sounds || {}).forEach((k) => { if (sounds[k] && sounds[k].values) { bank[k] = sounds[k]; added++; } });
+        storeBank(); fillPresets(); toast('IMPORTED ' + added + (added === 1 ? ' SOUND' : ' SOUNDS'));
+      } catch (err) { toast('THAT FILE IS NOT A FLUIDIC BANK'); }
+    }
+    let current = 'f:Init Drop', lastRoll = '';
+    function fillPresets() {
+      presetSel.innerHTML = '';
+      const gf = el('optgroup'); gf.label = 'FACTORY';
+      Object.keys(PRESETS).forEach((name) => { const o = el('option', '', name); o.value = 'f:' + name; gf.append(o); });
+      presetSel.append(gf);
+      const names = Object.keys(bank).sort((a, b) => a.localeCompare(b));
+      if (names.length) {
+        const gu = el('optgroup'); gu.label = 'USER';
+        names.forEach((name) => { const o = el('option', '', name); o.value = 'u:' + name; gu.append(o); });
+        presetSel.append(gu);
+      }
+      presetSel.value = current; if (presetSel.value !== current) presetSel.selectedIndex = 0;
+    }
+    function applyValues(src) {
+      PARAMS.forEach((p) => { const v = src[p.id]; values[p.id] = v == null ? p.def : p.type === 'enum' ? (p.options.some((o) => o[0] === v) ? v : p.def) : Math.min(p.max, Math.max(p.min, Number(v))); });
+      widgets.forEach((w) => w.paint()); sendParams(); applyFx(); commit(); presetSel.value = current;
+    }
+    function loadUser(name) { if (!bank[name]) return; current = 'u:' + name; applyValues(bank[name].values); persistUi(); }
+    function toast(text) {
+      const t = el('div', 'toast', text); vizBox.append(t);
+      setTimeout(() => { t.style.opacity = '0'; }, 1800); setTimeout(() => t.remove(), 2400);
+    }
+    function suggestName() {
+      const pat = (PATTERNS.find((x) => x[0] === values['drip.pattern']) || ['', 'Drip'])[1];
+      const base = pat.charAt(0) + pat.slice(1).toLowerCase() + (lastRoll ? ' · ' + lastRoll : ' · edit');
+      let n = 1, name = base; while (bank[name]) name = base + ' ' + (++n);
+      return name;
+    }
+    let saveBox = null;
+    function closeSave() { if (saveBox) { saveBox.remove(); saveBox = null; } }
+    document.addEventListener('pointerdown', (e) => { if (saveBox && !saveBox.contains(e.target) && e.target !== saveBtn) closeSave(); });
+    saveBtn.addEventListener('click', () => {
+      if (saveBox) return closeSave();
+      closeMenu();
+      const r = saveBtn.getBoundingClientRect();
+      saveBox = el('div', 'savebox'); saveBox.style.top = (r.bottom + 6) + 'px'; saveBox.style.left = Math.max(8, r.right - 290) + 'px';
+      const inp = el('input'); inp.value = current.startsWith('u:') ? current.slice(2) : suggestName(); inp.maxLength = 40; inp.spellcheck = false;
+      const note = el('div', 'note'), row = el('div', 'row'), ok = el('button', 'hbtn save', 'SAVE'), cancel = el('button', 'hbtn', 'CANCEL');
+      const check = () => {
+        const n = inp.value.trim();
+        if (!n) { note.textContent = 'Give it a name'; ok.disabled = true; return; }
+        ok.disabled = false;
+        if (PRESETS[n]) note.textContent = 'That is a factory name — it will be saved as "' + n + ' (user)"';
+        else note.textContent = bank[n] ? 'Replaces your saved "' + n + '"' : '';
+        ok.textContent = bank[PRESETS[n] ? n + ' (user)' : n] ? 'REPLACE' : 'SAVE';
+      };
+      const doSave = () => {
+        let n = inp.value.trim(); if (!n) return; if (PRESETS[n]) n += ' (user)';
+        bank[n] = { values: Object.assign({}, values), saved: new Date().toISOString(), from: lastRoll || 'edit' };
+        storeBank(); current = 'u:' + n; fillPresets(); closeSave(); persistUi();
+        toast(bankStored ? 'SAVED TO BANK · ' + n.toUpperCase() : 'SAVED FOR THIS SESSION · EXPORT THE BANK TO KEEP IT');
+      };
+      inp.addEventListener('input', check);
+      inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') doSave(); if (e.key === 'Escape') closeSave(); });
+      inp.addEventListener('keyup', (e) => e.stopPropagation());
+      ok.addEventListener('click', doSave); cancel.addEventListener('click', closeSave);
+      row.append(cancel, ok);
+      saveBox.append(el('small', '', 'SAVE TO BANK'), inp, note, row);
+      root.append(saveBox); check(); inp.focus(); inp.select();
+    });
+    bankBtn.addEventListener('click', (e) => {
+      closeMenu(); closeSave();
+      const r = bankBtn.getBoundingClientRect();
+      menu = el('div', 'ctx'); menu.style.top = (r.bottom + 6) + 'px'; menu.style.left = Math.max(8, r.right - 200) + 'px'; menu.style.minWidth = '200px';
+      const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { closeMenu(); fn(); }); menu.append(b); };
+      const n = Object.keys(bank).length;
+      menu.append(el('small', '', 'USER BANK · ' + n + (n === 1 ? ' SOUND' : ' SOUNDS')));
+      if (current.startsWith('u:')) {
+        const name = current.slice(2);
+        item('Delete "' + name + '"', () => { delete bank[name]; storeBank(); current = 'f:Init Drop'; fillPresets(); persistUi(); toast('DELETED · ' + name.toUpperCase()); });
+      }
+      item('Export bank (.json)', () => {
+        if (plugin) return plugin.exportBank(JSON.stringify({ format: 'fluidic-bank', version: 1, sounds: bank }, null, 2));
+        const blob = new Blob([JSON.stringify({ format: 'fluidic-bank', version: 1, sounds: bank }, null, 2)], { type: 'application/json' });
+        const a = el('a'); a.href = URL.createObjectURL(blob); a.download = 'fluidic-bank.json'; document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      });
+      item('Import bank (.json)…', () => {
+        if (plugin) return plugin.importBank();
+        const f = el('input'); f.type = 'file'; f.accept = '.json,application/json';
+        f.addEventListener('change', async () => importBankText(await f.files[0].text()));
+        f.click();
+      });
+      root.append(menu);
+    });
+    fillPresets();
+
+    function loadPreset(name) {
+      current = 'f:' + name;
+      const pr = PRESETS[name] || {};
+      PARAMS.forEach((p) => { values[p.id] = pr[p.id] != null ? pr[p.id] : p.def; });
+      widgets.forEach((w) => w.paint()); sendParams(); applyFx();
+      commit(); presetSel.value = current; persistUi();
+    }
+
+    /* ---------------- visualiser ---------------- */
+    const g = canvas.getContext('2d');
+    let W = 0, H = 0, DPR = 1;
+    function resize() { DPR = Math.min(2, window.devicePixelRatio || 1); W = vizBox.clientWidth; H = vizBox.clientHeight; canvas.width = W * DPR; canvas.height = H * DPR; g.setTransform(DPR, 0, 0, DPR, 0, 0); }
+    window.addEventListener('resize', resize); resize();
+    if (window.ResizeObserver) new ResizeObserver(resize).observe(vizBox);
+    const KIND_HUE = { note: 188, rain: 192, splash: 172, stream: 204 };
+    function spawn(ev, now) {
+      const x = ev.x * W, size = Math.min(1.5, ev.size), hue = (KIND_HUE[ev.kind] || 190) - (ev.note - 60) * 0.6 + ev.chirp * 10;
+      const y = H * (0.14 + 0.72 * Math.random());
+      viz.drops.push({ x, y, t0: now, size, hue });
+      const rings = ev.kind === 'stream' ? 1 : size > 0.7 ? 3 : 2;
+      for (let r = 0; r < rings; r++) viz.ripples.push({ x, y, t0: now + 40 + r * 110, size, hue, speed: 40 + 70 * (1.1 - Math.min(1, size)) + ev.sweep * 8 });
+      const sparks = Math.round(2 + size * 7 + (ev.kind === 'splash' ? 4 : 0));
+      for (let s = 0; s < sparks; s++) viz.sparks.push({ x, y: 0, ox: x, oy: y, ang: Math.random() * Math.PI * 2, dist: 10 + Math.random() * (14 + size * 34), vx: (Math.random() - 0.5) * (40 + size * 120), vy: -(60 + Math.random() * 160 * (0.4 + size)), t0: now + 40, hue, r: 0.8 + Math.random() * 1.6 * size });
+      if (viz.ripples.length > 260) viz.ripples.splice(0, viz.ripples.length - 260);
+      if (viz.sparks.length > 600) viz.sparks.splice(0, viz.sparks.length - 600);
+      if (viz.drops.length > 120) viz.drops.splice(0, viz.drops.length - 120);
+    }
+
+    // overhead view: looking straight down on the water
+    function drawTop(now, dt) {
+      const heat = Math.min(1, Math.max(0, (viz.peak - 0.8) / 2.2));
+      const glowHue = 188 - heat * 160;
+      const bg = g.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, Math.max(W, H) * 0.75);
+      bg.addColorStop(0, `hsl(${glowHue},55%,${9 + heat * 8}%)`); bg.addColorStop(1, '#02070a');
+      g.fillStyle = bg; g.fillRect(0, 0, W, H);
+      // slow caustic shimmer on the surface
+      g.lineWidth = 1;
+      for (let i = 0; i < 7; i++) {
+        g.beginPath();
+        for (let x = 0; x <= W; x += 10) { const yy = H * (i + 0.5) / 7 + Math.sin(x * 0.011 + idle * 0.6 + i) * 9 + Math.sin(x * 0.027 - idle * 0.4 + i * 2) * 4; x === 0 ? g.moveTo(x, yy) : g.lineTo(x, yy); }
+        g.strokeStyle = `hsla(${glowHue},70%,55%,${0.05 + heat * 0.05})`; g.stroke();
+      }
+      // ripples: full circles spreading out from each impact
+      viz.ripples = viz.ripples.filter((r) => (now - r.t0) / 1000 < 1.8);
+      for (const r of viz.ripples) {
+        const age = (now - r.t0) / 1000; if (age < 0) continue;
+        const rad = 3 + age * r.speed * (1 + r.size) * 0.62, a = Math.max(0, 1 - age / 1.5) * (0.35 + 0.5 * Math.min(1, r.size));
+        g.beginPath(); g.arc(r.x, r.y, rad, 0, Math.PI * 2);
+        g.strokeStyle = `hsla(${r.hue},80%,72%,${a})`; g.lineWidth = 1 + r.size * 1.4; g.stroke();
+        g.beginPath(); g.arc(r.x, r.y, rad * 0.86, 0, Math.PI * 2);
+        g.strokeStyle = `hsla(${r.hue},70%,40%,${a * 0.5})`; g.lineWidth = 1; g.stroke();
+      }
+      // falling drops: seen from above they grow as they approach, then flash on impact
+      viz.drops = viz.drops.filter((d) => now - d.t0 < 260);
+      for (const d of viz.drops) {
+        const age = (now - d.t0) / 260, r0 = 2 + d.size * 5;
+        const halo = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, r0 * 4);
+        halo.addColorStop(0, `hsla(${d.hue},90%,85%,${0.55 * (1 - age)})`); halo.addColorStop(1, `hsla(${d.hue},90%,60%,0)`);
+        g.fillStyle = halo; g.beginPath(); g.arc(d.x, d.y, r0 * 4, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.arc(d.x, d.y, r0 * (1 - age * 0.7), 0, Math.PI * 2); g.fillStyle = `hsla(${d.hue},90%,92%,${1 - age})`; g.fill();
+      }
+      // splash droplets thrown outwards, landing in a ring
+      viz.sparks = viz.sparks.filter((s) => now < s.t0 || now - s.t0 < 600);
+      for (const s of viz.sparks) {
+        if (now < s.t0) continue;
+        const t = (now - s.t0) / 600, d = s.dist * (1 - (1 - t) * (1 - t));
+        const lift = Math.sin(t * Math.PI);
+        g.beginPath(); g.arc(s.ox + Math.cos(s.ang) * d, s.oy + Math.sin(s.ang) * d, s.r * (0.6 + lift * 0.8), 0, Math.PI * 2);
+        g.fillStyle = `hsla(${s.hue},90%,82%,${0.9 * (1 - t)})`; g.fill();
+      }
+    }
+    let last = performance.now(), idle = 0;
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now; idle += dt;
+      const surf = H * 0.66;
+      g.clearRect(0, 0, W, H);
+      if (vizView === 'top') drawTop(now, dt); else {
+      const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#04070a'); bg.addColorStop(0.62, '#071118'); bg.addColorStop(1, '#03161c');
+      g.fillStyle = bg; g.fillRect(0, 0, W, H);
+      // EDGE glow: the surface heats from aqua through amber towards red as the drops approach overload
+      const heat = Math.min(1, Math.max(0, (viz.peak - 0.8) / 2.2));
+      const glowHue = 188 - heat * 160;
+      // water body
+      const water = g.createLinearGradient(0, surf, 0, H); water.addColorStop(0, `hsla(${glowHue},70%,${18 + heat * 10}%,0.55)`); water.addColorStop(1, 'rgba(2,10,14,0.9)');
+      g.fillStyle = water; g.fillRect(0, surf, W, H - surf);
+      // surface line, disturbed by live ripples
+      g.beginPath();
+      for (let x = 0; x <= W; x += 6) {
+        let y = surf + Math.sin(x * 0.012 + idle * 1.3) * 1.2 + Math.sin(x * 0.031 - idle * 0.9) * 0.6;
+        for (const r of viz.ripples) { const age = (now - r.t0) / 1000; if (age < 0 || age > 1.6) continue; const rad = age * r.speed * (1 + r.size); const d = Math.abs(x - r.x) - rad; if (Math.abs(d) < 18) y += Math.cos(d / 18 * Math.PI) * 3.2 * r.size * (1 - age / 1.6); }
+        x === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+      }
+      g.strokeStyle = `hsla(${glowHue},85%,${62 + heat * 8}%,${0.55 + heat * 0.35})`; g.lineWidth = 1.4 + heat * 1.6;
+      g.shadowColor = `hsla(${glowHue},90%,60%,${0.4 + heat * 0.5})`; g.shadowBlur = 8 + heat * 22; g.stroke(); g.shadowBlur = 0;
+      // ripples: perspective rings on the surface
+      viz.ripples = viz.ripples.filter((r) => (now - r.t0) / 1000 < 1.8);
+      for (const r of viz.ripples) {
+        const age = (now - r.t0) / 1000; if (age < 0) continue;
+        const rad = age * r.speed * (1 + r.size), a = Math.max(0, 1 - age / 1.8) * (0.35 + 0.5 * Math.min(1, r.size));
+        g.beginPath(); g.ellipse(r.x, surf + 3, rad, rad * 0.2, 0, 0, Math.PI * 2);
+        g.strokeStyle = `hsla(${r.hue},80%,72%,${a})`; g.lineWidth = 1 + r.size * 1.2; g.stroke();
+      }
+      // falling streaks: each drop is drawn landing as it sounds
+      viz.drops = viz.drops.filter((d) => now - d.t0 < 260);
+      for (const d of viz.drops) {
+        const age = (now - d.t0) / 260, len = 30 + d.size * 70, top = surf - len * (1 - age * 0.6);
+        const grad = g.createLinearGradient(0, top, 0, surf); grad.addColorStop(0, `hsla(${d.hue},90%,80%,0)`); grad.addColorStop(1, `hsla(${d.hue},90%,85%,${0.9 * (1 - age)})`);
+        g.strokeStyle = grad; g.lineWidth = 1.2 + d.size * 2.4; g.beginPath(); g.moveTo(d.x, top); g.lineTo(d.x, surf); g.stroke();
+        g.beginPath(); g.arc(d.x, surf - 2, (2 + d.size * 4) * (1 - age), 0, Math.PI * 2); g.fillStyle = `hsla(${d.hue},90%,88%,${1 - age})`; g.fill();
+      }
+      // splash sparks: little droplets thrown up that fall back in
+      viz.sparks = viz.sparks.filter((s) => s.y <= 4 || now < s.t0);
+      for (const s of viz.sparks) {
+        if (now < s.t0) continue;
+        s.vy += 520 * dt; s.x += s.vx * dt; s.y += s.vy * dt;
+        g.beginPath(); g.arc(s.x, surf + s.y, s.r, 0, Math.PI * 2); g.fillStyle = `hsla(${s.hue},90%,80%,0.85)`; g.fill();
+      }
+      }
+      // emergency cut: a brief red flash
+      if (viz.cut > 0) { g.fillStyle = `rgba(229,72,77,${viz.cut * 0.28})`; g.fillRect(0, 0, W, H); viz.cut = Math.max(0, viz.cut - dt * 3); }
+      hud.innerHTML = 'PATTERN <span>' + (PATTERNS.find((p) => p[0] === values['drip.pattern']) || ['', ''])[1] + '</span> &nbsp;·&nbsp; EDGE <span>' + (values['drip.edge'] < 0.01 ? 'OFF' : pct(values['drip.edge'])) + '</span>';
+      meter.querySelector('b').style.width = Math.min(100, viz.peak / 3 * 100) + '%';
+      meter.querySelector('.vc').textContent = viz.voices + (viz.voices === 1 ? ' VOICE' : ' VOICES');
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+
+    if (!plugin) loadPreset('Sine Meditation');   // FLUIDIC opens on the sine pad
+    else {
+      // the plugin owns the sound: take its values (a new instance starts on Sine Meditation; a project brings its own)
+      const fromHost = (m) => {
+        try { bank = JSON.parse(m.bank || '{}') || {}; } catch (e) { bank = {}; }
+        let ui = {}; try { ui = JSON.parse(m.ui || '{}') || {}; } catch (e) {}
+        PARAMS.forEach((p) => { if (m.values && m.values[p.id] != null) values[p.id] = m.values[p.id]; });
+        hostVals = Object.assign({}, values);
+        current = ui.preset || 'f:Sine Meditation';
+        if (ui.view === 'side' || ui.view === 'top') { vizView = ui.view; viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === vizView)); }
+        fillPresets(); widgets.forEach((w) => w.paint());
+        history = []; hp = -1; commit();
+      };
+      plugin.on('init', fromHost);
+      plugin.on('restored', fromHost);
+      plugin.on('params', (m) => {   // host automation and parameter changes
+        Object.keys(m).forEach((id) => { if (BY_ID[id]) { values[id] = m[id]; if (hostVals) hostVals[id] = m[id]; } });
+        widgets.forEach((w) => { if (w.id in m) w.paint(); });
+      });
+      plugin.on('bankImported', (m) => importBankText(m.json));
+      start();
+      plugin.ready();
+    }
+    return { params: PARAMS, get: (id) => values[id], set, noteOn, noteOff, trigger, loadPreset, loadUser, bank: () => bank, start, ready: () => !!node, panic: () => { held.clear(); paintKeys(); if (node) node.port.postMessage({ type: 'panic' }); },
+      // the host closed its audio (e.g. Foldspace's panic): drop ours, rebuild on the next start()
+      reset: () => { held.clear(); paintKeys(); try { if (node) node.disconnect(); } catch (e) {} node = null; fx = null; ctx = null; starting = null; viz.peak = 0; viz.voices = 0; if (!startOverlay.isConnected) vizBox.append(startOverlay); } };
+  }
+  return { mount, PARAMS, PRESETS };
+})();
+
+// Inside the FLUIDIC plugin the page runs in JUCE's web view, which provides window.__JUCE__.backend.
+function juceBridge() {
+  const J = window.__JUCE__ && window.__JUCE__.backend;
+  if (!J || typeof J.emitEvent !== 'function') return null;
+  const emit = (e, o) => J.emitEvent(e, o || {});
+  return {
+    param: (id, value, phase) => emit('param', { id, value, phase }),
+    note: (note, vel, on) => emit('note', { note, vel, on }),
+    panic: () => emit('panic'),
+    saveUi: (state) => emit('ui', { state }),
+    saveBank: (json) => emit('bankSave', { json }),
+    exportBank: (json) => emit('bankExport', { json }),
+    importBank: () => emit('bankImport'),
+    on: (ev, fn) => J.addEventListener(ev, fn),
+    ready: () => emit('ready')
+  };
+}
+const fluidicBridge = juceBridge();
+if (fluidicBridge) document.documentElement.classList.add('in-plugin');
+window.fluidic = Fluidic.mount(document.getElementById('fluidic'), fluidicBridge ? { plugin: fluidicBridge } : {});
+</script>
+</body>
+</html>
