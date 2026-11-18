@@ -143,6 +143,7 @@
   .panel > .krow.capcol { flex: 1; }
   .capcol > .rows { display: flex; flex-direction: column; gap: 8px; }
   .capcol > .rows > .knobs:last-child { margin-top: auto; }
+  .rows > .krow.capcol { flex: 1; }
   .drip-grid > .capcol + .rows { border-left: 1px solid var(--line); padding-left: 12px; }
   .knob.locked .cap { stroke: var(--amber); stroke-width: 1.6; }
   .knob.locked .kl { color: var(--amber); }
@@ -826,16 +827,17 @@ const Fluidic = (() => {
     const ek = el('div', 'knobs'); ['exc.level', 'exc.hold', 'exc.octave'].forEach((id) => knob(ek, id)); ecol.append(ek);
     }
     const pDrip = el('section', 'panel drip'); pDrip.dataset.sec = 'drip'; const dh = el('h3', '', 'DRIP'); dh.append(el('span', '', 'PATTERN · DROP · SHAPE')); pDrip.append(dh);
-    const grid = el('div', 'drip-grid'), right = el('div', 'rows'), left = capcol(grid, 'PATTERN', ['drip.pattern', 'drip.cutoff', 'drip.res', 'drip.key']);
-    segs(left, 'drip.pattern', 4);
-    const lk = el('div', 'knobs'); ['drip.cutoff', 'drip.res', 'drip.key'].forEach((id) => knob(lk, id)); left.append(lk);
+    const grid = el('div', 'drip-grid'), left = el('div', 'rows'), right = el('div', 'rows'); grid.append(left);
+    segs(capcol(left, 'PATTERN', ['drip.pattern']), 'drip.pattern', 4);
+    krow(left, 'PITCH', ['drip.cutoff', 'drip.res', 'drip.key']);
     krow(right, 'DROP', ['drip.ping', 'drip.sweep', 'drip.fall', 'drip.bubble', 'drip.wobble']);
     krow(right, 'SPREAD', ['drip.chirp', 'drip.width', 'drip.density', 'drip.size', 'drip.edge']); grid.append(right); pDrip.append(grid);
     const pFilt = el('section', 'panel filter'); pFilt.dataset.sec = 'filt'; const fh = el('h3', '', 'FILTER'); fh.append(el('span', '', FX ? 'ON THE OUTPUT · ENV FOLLOWS THE DRIPS' : 'AFTER THE DRIPS · ENV · LFO')); pFilt.append(fh);
-    const fgrid = el('div', 'drip-grid'), fright = el('div', 'rows'), fleft = capcol(fgrid, 'SHAPE', ['filt.type', 'filt.cutoff', 'filt.res', 'filt.drive']);
-    segs(fleft, 'filt.type', 6);
-    scope(fleft, drawFilter, ['filt.type', 'filt.cutoff', 'filt.res']);
-    const flk = el('div', 'knobs'); ['filt.cutoff', 'filt.res', 'filt.drive'].forEach((id) => knob(flk, id)); fleft.append(flk);
+    const fgrid = el('div', 'drip-grid'), fleft = el('div', 'rows'), fright = el('div', 'rows'); fgrid.append(fleft);
+    const fshape = capcol(fleft, 'SHAPE', ['filt.type']);
+    segs(fshape, 'filt.type', 6);
+    scope(fshape, drawFilter, ['filt.type', 'filt.cutoff', 'filt.res']);
+    krow(fleft, 'CUT · RES', ['filt.cutoff', 'filt.res', 'filt.drive']);
     krow(fright, 'ENV', ['filt.env', 'filt.attack', 'filt.decay']);
     krow(fright, 'KEY · LFO', ['filt.key', 'filt.lfoRate', 'filt.lfoDepth']); fgrid.append(fright); pFilt.append(fgrid);
     widgets.push({ id: 'filt.type', paint: () => pFilt.classList.toggle('bypassed', values['filt.type'] === 'off') });
