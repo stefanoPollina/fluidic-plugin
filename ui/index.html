@@ -124,7 +124,14 @@
   .dice .hist button { background: #141517; border: 1px solid var(--line-2); color: var(--text); border-radius: 5px; width: 26px; height: 24px; font: inherit; cursor: pointer; }
   .dice .hist button:disabled { opacity: .3; cursor: default; }
   .dice .hist output { font-family: var(--mono); font-size: 10px; color: var(--aqua); min-width: 38px; text-align: center; }
-  .panel.held h3::after { content: 'LOCKED'; color: var(--amber); font-size: 8px; letter-spacing: .16em; border: 1px solid var(--amber); border-radius: 4px; padding: 1px 4px; }
+  .panel h3 > span { margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .panelhold { margin-left: 8px; flex: none; background: transparent; border: 1px solid #2c3138; color: #5d6672; border-radius: 4px; font: inherit; font-size: 8px; letter-spacing: .16em; padding: 2px 6px; cursor: pointer; }
+  .panelhold:hover { color: var(--text); border-color: #46505d; }
+  .panelhold.on { color: #1a1205; background: var(--amber); border-color: var(--amber); font-weight: 700; }
+  .panel.held { border-color: #4a3a1a; }
+  .krow > i.holdcap { cursor: pointer; border-radius: 3px; transition: color .15s; }
+  .krow > i.holdcap:hover { color: var(--text); }
+  .krow > i.holdcap.on { color: var(--amber); }
   .knob.locked .cap { stroke: var(--amber); stroke-width: 1.6; }
   .knob.locked .kl { color: var(--amber); }
   /* the roll, shown on the water */
@@ -424,8 +431,14 @@ const Fluidic = (() => {
     function persistUi() {
       const st = { preset: current, view: vizView };
       if (FX) st.auto = autoState();
+      if (typeof holdState === 'function' && panelHolds) st.holds = holdState();
       if (plugin) plugin.saveUi(JSON.stringify(st));
-      else if (FX) { try { localStorage.setItem('fluidic-fx-auto', JSON.stringify(st.auto)); } catch (e) {} }
+      else {
+        try {
+          if (FX) localStorage.setItem('fluidic-fx-auto', JSON.stringify(st.auto));
+          if (st.holds) localStorage.setItem(FX ? 'fluidic-fx-holds' : 'fluidic-holds', JSON.stringify(st.holds));
+        } catch (e) {}
+      }
     }
     function impulse(seconds) {
       const len = Math.max(1, Math.floor(ctx.sampleRate * seconds)), buf = ctx.createBuffer(2, len, ctx.sampleRate);
@@ -639,7 +652,7 @@ const Fluidic = (() => {
         item('Reset to default', () => set(id, p.def));
         item('Set to minimum', () => set(id, p.min));
         item('Set to maximum', () => set(id, p.max));
-        if (POOL.includes(id)) item(lockedIds.has(id) ? 'Unlock for dice' : 'Lock from dice', () => { lockedIds.has(id) ? lockedIds.delete(id) : lockedIds.add(id); paintLocks(); });
+        if (POOL.includes(id)) item(lockedIds.has(id) ? 'Release hold' : 'Hold from dice', () => { lockedIds.has(id) ? lockedIds.delete(id) : lockedIds.add(id); holdsChanged(); });
         root.append(menu);
       });
       widgets.push({ id, paint }); paint();
@@ -653,9 +666,17 @@ const Fluidic = (() => {
       widgets.push({ id, paint }); paint();
     }
 
+    const rowCaps = [];
     function krow(parent, caption, ids) {
-      const r = el('div', 'krow'), k = el('div', 'knobs'); r.append(el('i', '', caption), k);
-      ids.forEach((id) => knob(k, id)); parent.append(r); return r;
+      const r = el('div', 'krow'), k = el('div', 'knobs'), cap = el('i', 'holdcap', caption);
+      cap.title = 'Click to hold this row from the dice (click again to release)';
+      cap.addEventListener('click', () => {
+        const held = ids.filter((id) => POOL.includes(id)).every((id) => lockedIds.has(id));
+        ids.forEach((id) => { if (held) lockedIds.delete(id); else if (POOL.includes(id)) lockedIds.add(id); });
+        holdsChanged();
+      });
+      r.append(cap, k);
+      ids.forEach((id) => knob(k, id)); parent.append(r); rowCaps.push([cap, ids]); return r;
     }
     const scopes = [];
     function scope(parent, draw, ids) {
@@ -768,7 +789,7 @@ const Fluidic = (() => {
     }
     {
     pExc = el('section', 'panel'); pExc.dataset.sec = 'exc';
-    const eh = el('h3', '', 'EXCITER'); if (FX) eh.append(el('span', '', 'TONE LAYER · 0 = BEAT ONLY')); pExc.append(eh);
+    const eh = el('h3', '', 'EXCITER'); if (FX) eh.append(el('span', '', 'TONE LAYER')); pExc.append(eh);
     segs(pExc, 'exc.wave', 4);
     scope(pExc, drawWave, ['exc.wave', 'exc.level', 'exc.hold']);
     const ek = el('div', 'knobs'); ['exc.level', 'exc.hold', 'exc.octave'].forEach((id) => knob(ek, id)); pExc.append(ek);
@@ -798,7 +819,7 @@ const Fluidic = (() => {
     }
     {
     pAmp = el('section', 'panel'); pAmp.dataset.sec = 'amp';
-    const ah = el('h3', '', 'AMP'); if (FX) ah.append(el('span', '', 'EACH DRIP · 1 STEP LONG')); pAmp.append(ah);
+    const ah = el('h3', '', 'AMP'); if (FX) ah.append(el('span', '', 'EACH DRIP')); pAmp.append(ah);
     krow(pAmp, 'RISE', ['amp.a', 'amp.d']); const ar2 = krow(pAmp, 'HOLD · FADE', ['amp.s', 'amp.r']); ar2.style.marginTop = 'auto';
     }
     const pFx = el('section', 'panel'); pFx.dataset.sec = 'fx'; pFx.append(el('h3', '', 'SPACE'));
@@ -820,9 +841,9 @@ const Fluidic = (() => {
       dset.append(b);
     });
     tray.append(dset);
-    const locks = el('div', 'locks'); locks.append(el('small', '', 'LOCK FROM DICE'));
+    const locks = el('div', 'locks'); locks.append(el('small', '', 'HOLD FROM DICE'));
     const lockRow = el('div');
-    const lockBtns = SECS.map(([sec, label]) => { const b = el('button', 'lock', label); b.type = 'button'; b.addEventListener('click', () => { lockedSecs.has(sec) ? lockedSecs.delete(sec) : lockedSecs.add(sec); paintLocks(); }); lockRow.append(b); return [sec, b]; });
+    const lockBtns = SECS.map(([sec, label]) => { const b = el('button', 'lock', label); b.type = 'button'; b.addEventListener('click', () => { lockedSecs.has(sec) ? lockedSecs.delete(sec) : lockedSecs.add(sec); holdsChanged(); }); lockRow.append(b); return [sec, b]; });
     locks.append(lockRow); tray.append(locks);
     const hist = el('div', 'hist'); hist.append(el('small', '', 'ROLL HISTORY'));
     const hrow = el('div'), back = el('button', '', '◀'), fwd = el('button', '', '▶'), hpos = el('output');
@@ -955,8 +976,28 @@ const Fluidic = (() => {
     mid.addEventListener('scroll', moreCue); window.addEventListener('resize', moreCue);
     if (window.ResizeObserver) new ResizeObserver(moreCue).observe(mid); moreCue();
 
+    // every panel's title bar gets a HOLD button (same state as the tray's chips)
+    const panelHolds = [];
+    root.querySelectorAll('.rack .panel[data-sec]').forEach((pn) => {
+      const sec = pn.dataset.sec, h = pn.querySelector('h3'); if (!h) return;
+      const b = el('button', 'panelhold', 'HOLD'); b.type = 'button';
+      b.title = 'Hold this whole panel from the dice, manual and auto roll (click again to release)';
+      b.addEventListener('click', () => { lockedSecs.has(sec) ? lockedSecs.delete(sec) : lockedSecs.add(sec); holdsChanged(); });
+      h.append(b); panelHolds.push([sec, b]);
+    });
+    function holdsChanged() { paintLocks(); persistUi(); }
+    function holdState() { return { secs: [...lockedSecs], ids: [...lockedIds] }; }
+    function setHoldState(h) {
+      if (!h) return;
+      lockedSecs.clear(); lockedIds.clear();
+      (h.secs || []).forEach((x) => { if (SECS.some(([k]) => k === x)) lockedSecs.add(x); });
+      (h.ids || []).forEach((x) => { if (POOL.includes(x)) lockedIds.add(x); });
+      paintLocks();
+    }
     function paintLocks() {
       lockBtns.forEach(([sec, b]) => b.classList.toggle('on', lockedSecs.has(sec)));
+      panelHolds.forEach(([sec, b]) => b.classList.toggle('on', lockedSecs.has(sec)));
+      rowCaps.forEach(([cap, ids]) => { const live = ids.filter((id) => POOL.includes(id)); cap.classList.toggle('on', live.length > 0 && live.every((id) => lockedIds.has(id) || lockedSecs.has(id.split('.')[0]))); });
       root.querySelectorAll('.panel[data-sec]').forEach((pn) => pn.classList.toggle('held', lockedSecs.has(pn.dataset.sec)));
       root.querySelectorAll('.knob[data-id]').forEach((k) => { const id = k.dataset.id, on = lockedIds.has(id) || lockedSecs.has(id.split('.')[0]); k.classList.toggle('locked', on && POOL.includes(id)); });
     }
@@ -1387,6 +1428,7 @@ const Fluidic = (() => {
     requestAnimationFrame(frame);
 
     if (!plugin && FX) { try { setAutoState(JSON.parse(localStorage.getItem('fluidic-fx-auto') || 'null')); } catch (e) {} }   // before the preset saves the state
+    if (!plugin) { try { setHoldState(JSON.parse(localStorage.getItem(FX ? 'fluidic-fx-holds' : 'fluidic-holds') || 'null')); } catch (e) {} }
     if (!plugin) loadPreset(OPEN_ON);   // FLUIDIC opens on the sine pad; FLUIDIC FX on Break Drips
     else {
       // the plugin owns the sound: take its values (a new instance starts on Sine Meditation; a project brings its own)
@@ -1399,6 +1441,7 @@ const Fluidic = (() => {
         if (ui.view === 'side' || ui.view === 'top') { vizView = ui.view; viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === vizView)); }
         fillPresets(); widgets.forEach((w) => w.paint());
         if (ui.auto) setAutoState(ui.auto);
+        if (ui.holds) setHoldState(ui.holds);
         history = []; hp = -1; commit();
       };
       plugin.on('init', fromHost);

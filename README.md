@@ -21,7 +21,12 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
   - **Syncopated:** off-beats, backbeat, tresillo, son and rumba clave, bossa nova, dotted 8ths, gallop, Euclidean 5/7/9, and a random bar.
   - **Your own pattern** of steps.
 
-  **HOLD GRID** keeps the 1/4–1/32 grid and **HOLD PATTERN** keeps the drip style while the rest rolls. Locks keep any other part you like. In a DAW, auto-roll runs while the plugin window is open.
+  **HOLD GRID** keeps the 1/4–1/32 grid and **HOLD PATTERN** keeps the drip style while the rest rolls. In a DAW, auto-roll runs while the plugin window is open.
+
+- **Hold anything from the dice** (both plugins, manual and auto rolls). Everything you hold saves with the project.
+  - **A whole panel:** its **HOLD** button.
+  - **A row of dials:** click the row's side caption (DROP, SPREAD, ENV…).
+  - **One dial:** right-click it → *Hold from dice*.
 
   The grid locks to your DAW's tempo and song position. **CHOP** gates the track to the drip rhythm, re-cutting it, and **MIX** goes from dry to wet. With **SENSE** up, the track's own hits trigger drips too, and MIDI notes sent to the effect set the drips' pitch. In Ableton it's under *Audio Effects*; in FL Studio, load it in a Mixer slot.
 
