@@ -30,6 +30,12 @@ CASES = {
  'lp24 env + lfo': {'pattern':'both','fType':'lp24','fEnv':.6,'fCut':600,'fDepth':.4,'fRate':3},
  'storm hot, edge': {'pattern':'storm','res':.97,'ping':1,'bubble':1,'density':1,'drive':4,'edge':.8},
  '100 bpm, bp drive': {'pattern':'both','bpm':100,'fType':'bp','fRes':.7,'fDrive':.5},
+ 'tone layer saw, oct -1': {'pattern':'even','oscLevel':.6,'wave':'saw','octave':-1},
+ 'tone layer noise + hold': {'pattern':'rain','oscLevel':.5,'wave':'noise','hold':.6},
+ 'tone layer sine, square': {'pattern':'splash','oscLevel':.7,'wave':'square'},
+ 'AMP snappy': {'pattern':'even','a':.001,'d':.05,'s':0,'r':.05},
+ 'AMP swell': {'pattern':'even','rate':2,'a':.3,'s':1,'r':1},
+ 'filter KEY': {'pattern':'both','fType':'lp24','fCut':500,'fKey':1},
 }
 async def main():
   fails = 0

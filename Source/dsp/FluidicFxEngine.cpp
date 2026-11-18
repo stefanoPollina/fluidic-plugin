@@ -71,6 +71,12 @@ void FluidicFxEngine::spawn (double size, DropKind kind, int note)
     double width = clampd (p.width, 0, 1); if (p.pattern == Pattern::threeD && width < 0.8) width = 0.8;
     const double angle = (clampd (d->jit * width, -1, 1) + 1) * 0.25 * PI; d->gl = std::cos (angle); d->gr = std::sin (angle);
     d->len = clampd (p.fall, 0.02, 0.45) * sr * (1.5 + size * 4);
+    // tone layer: this drip's own oscillator, at the drip's note
+    d->note = n; d->freq = 440 * std::pow (2.0, (n + 12 * (int) p.octave - 69) / 12.0);
+    for (auto& x : d->noise) x = (float) (rng.next() * 2 - 1);
+    // AMP: attack → decay to sustain for one grid step, then release
+    d->aenv = 0; d->astage = 1; d->gate = std::max (1.0, sr * 60 / clampd (p.bpm, 30, 300) / std::max (1, p.rate));
+    lastNote = n;
     fenv = 0; fstage = 1;
     if (events.size() < 64) events.push_back ({ (float) clampd (0.5 + d->jit * width * 0.45, 0.03, 0.97), (float) size, kind, n, (float) p.sweep, (float) p.chirp });
 }
@@ -138,6 +144,10 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
     const double fDrive = clampd (p.fDrive, 0, 1), fDg = 1 + fDrive * 5, fDn = 1 / (1 + fDrive * 1.6);
     const double fAk = 1 - std::exp (-1 / (std::max (0.0008, p.fA) * sr)), fDk = 1 - std::exp (-1 / (std::max (0.005, p.fD) * sr));
     const double lfoInc = clampd (p.fRate, 0.01, 20) / sr, fDepth = clampd (p.fDepth, 0, 1) * 3, fEnvOct = clampd (p.fEnv, -1, 1) * 5;
+    auto ek = [this] (double t) { return 1 - std::exp (-1 / (std::max (0.0008, t) * sr)); };
+    const double ka = ek (p.a), kd = ek (p.d), kr = ek (p.r), sus = clampd (p.s, 0, 1);
+    const double oscLevel = clampd (p.oscLevel, 0, 1), hold = clampd (p.hold, 0, 1); const Wave wave = p.wave;
+    const double keyOct = clampd (p.fKey, 0, 1) * ((! held.empty() ? held.back() : lastNote) - 60) / 12.0;
     double blockPeak = 0;
 
     for (int i = 0; i < n; ++i)
@@ -162,8 +172,14 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
         {
             if (! d.active) continue;
             d.age += 1;
-            d.env = d.age < attLen ? d.age * kAtt : std::exp (-(d.age - attLen) / d.len);
-            if (d.env < 0.006 && d.age > attLen) { d.active = false; continue; }
+            // AMP: one grid step is the drip's note length
+            if (d.astage == 1) { d.aenv += (1.02 - d.aenv) * ka; if (d.aenv >= 1) { d.aenv = 1; d.astage = 2; } }
+            else if (d.astage == 2) d.aenv += (sus - d.aenv) * kd;
+            else d.aenv += (0 - d.aenv) * kr;
+            if (d.astage != 3 && d.age >= d.gate) d.astage = 3;
+            const double natural = d.age < attLen ? d.age * kAtt : std::exp (-(d.age - attLen) / d.len);
+            if ((natural < 0.006 && d.age > attLen) || (d.astage == 3 && d.aenv < 0.0004)) { d.active = false; continue; }
+            d.env = natural * std::min (1.0, d.aenv);
             if (d.env > gateNow) gateNow = d.env;
             double fall = std::exp (-d.age / (fallT * sr * (0.45 + d.size * 0.9)));
             if (chirp > 0) fall *= std::pow (fall, chirp);
@@ -176,6 +192,16 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
             const double gb = std::tan (PI * clampd (fc * (1.5 + d.ratio), 40, sr * 0.45) / sr), kb = 1 / std::max (1.6, dripQ * 0.62);
             const double b1 = 1 / (1 + gb * (gb + kb)), b2 = gb * b1, b3 = gb * b2;
             double exc = mono * drive * d.env * d.dGuard;
+            if (oscLevel > 0.0001)   // EXCITER tone layer, like the synth's oscillator
+            {
+                const double ph = d.oph, dt = d.freq / sr; d.oph = wrap01 (ph + dt);
+                double y;
+                if (wave == Wave::sine) y = std::sin (TAU * ph);
+                else if (wave == Wave::square) y = ph < 0.5 ? 1 : -1;
+                else if (wave == Wave::noise) { const double wn = rng.next() * 2 - 1; y = wn * (1 - hold) + (double) d.noise[(size_t) (int) (ph * 64)] * hold; }
+                else { y = 2 * ph - 1; if (ph < dt) { const double t = ph / dt; y -= t + t - t * t - 1; } else if (ph > 1 - dt) { const double t = (ph - 1) / dt; y -= t * t + t + t + 1; } }
+                exc += y * oscLevel * 0.35 * d.env * d.dGuard;
+            }
             if (d.age < 4 && ping > 0.001) exc += (d.age < 2 ? 0.8 : 0.18) * ping * d.size;
             const double v3 = exc - d.ic2, v1 = a1 * d.ic1 + a2 * v3, v2 = d.ic2 + a2 * d.ic1 + a3 * v3;
             d.ic1 = 2 * v1 - d.ic1; d.ic2 = 2 * v2 - d.ic2;
@@ -205,7 +231,7 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
         {
             if (fstage == 1) { fenv += (1.02 - fenv) * fAk; if (fenv >= 1) { fenv = 1; fstage = 2; } }
             else fenv += (0 - fenv) * fDk;
-            if ((i & 7) == 0) fg = std::tan (PI * clampd (p.fCut * std::pow (2.0, fEnvOct * fenv + fDepth * std::sin (lfoPh * TAU)), 20, sr * 0.45) / sr);
+            if ((i & 7) == 0) fg = std::tan (PI * clampd (p.fCut * std::pow (2.0, keyOct + fEnvOct * fenv + fDepth * std::sin (lfoPh * TAU)), 20, sr * 0.45) / sr);
             if (fDrive > 0.001) { ol = std::tanh (ol * fDg) * fDn; orr = std::tanh (orr * fDg) * fDn; }
             const double gg = fg, kk = fType == FilterType::lp24 ? fk24 : fk;
             auto pick = [&] (double x, int o)

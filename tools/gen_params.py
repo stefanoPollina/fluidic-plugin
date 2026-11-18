@@ -8,7 +8,7 @@ UNITS = {'rhy.bpm':'bpm','in.drive':'times','rhy.sense':'pctoff','in.chop':'pcto
          'fx.delayTime':'ms','fx.revSize':'s','filt.lfoRate':'Hz','drip.sweep':'oct','filt.env':'bi','exc.octave':'oct','drip.density':'x','drip.size':'x'}
 rows = []
 for p in d['params']:
-    pid = p['id']; deflt = sine.get(pid, p['def']); dfx = fxd.get(pid, p['def'])
+    pid = p['id']; deflt = sine.get(pid, p['def']); dfx = fxd.get(pid, p['fxDef'] if p.get('fxDef') is not None else p['def'])
     flags = f'{"true" if p.get("synthOnly") else "false"}, {"true" if p.get("fxOnly") else "false"}'
     if p['type'] == 'enum':
         keys = [o[0] for o in p['options']]; labels = [o[1] for o in p['options']]

@@ -132,6 +132,8 @@ void FluidicProcessor::readParams()
         q.mix = v (pMix); q.chop = v (pChop); q.drive = v (pDrive);
         q.fType = p.fType; q.fCut = p.fCut; q.fRes = p.fRes; q.fDrive = p.fDrive; q.fEnv = p.fEnv; q.fA = p.fA; q.fD = p.fD;
         q.fRate = p.fRate; q.fDepth = p.fDepth; q.level = p.level;
+        q.wave = p.wave; q.oscLevel = p.oscLevel; q.hold = p.hold; q.octave = p.octave;   // tone layer
+        q.a = p.a; q.d = p.d; q.s = p.s; q.r = p.r; q.fKey = p.fKey;                     // AMP per drip, filter KEY
     }
     FxParams f;
     f.delayMix = v (pDMix); f.delayTime = v (pDTime); f.delayFb = v (pDFb); f.revMix = v (pRMix); f.revSize = v (rawRevSize);
@@ -180,6 +182,7 @@ void FluidicProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         peak.store ((float) fxEngine.peak);
         if (fxEngine.cutFlash) { cut.store (true); fxEngine.cutFlash = false; }
         voices.store (fxEngine.activeDrops());
+        gridStep.store (fxEngine.gridStep());
         return;
     }
     int pos = 0;
@@ -214,7 +217,7 @@ FluidicProcessor::Frame FluidicProcessor::takeFrame()
     const auto r = dropFifo.read (dropFifo.getNumReady());
     for (int i = 0; i < r.blockSize1; ++i) f.events.push_back (dropBuf[(size_t) (r.startIndex1 + i)]);
     for (int i = 0; i < r.blockSize2; ++i) f.events.push_back (dropBuf[(size_t) (r.startIndex2 + i)]);
-    f.peak = peak.load(); f.cut = cut.exchange (false); f.voices = voices.load();
+    f.peak = peak.load(); f.cut = cut.exchange (false); f.voices = voices.load(); f.step = gridStep.load();
     return f;
 }
 

@@ -50,7 +50,7 @@ public:
     // ---- used by the editor (message thread) ----
     void addUiNote (int note, float velocity, bool on);   // on-screen / computer keyboard
     void requestPanic() { panicRequested = true; }
-    struct Frame { std::vector<fluidic::DropEvent> events; float peak = 0; bool cut = false; int voices = 0; };
+    struct Frame { std::vector<fluidic::DropEvent> events; float peak = 0; bool cut = false; int voices = 0; long long step = -1; };
     Frame takeFrame();                                     // drops since the last call, for the visualiser
     juce::String getUiState() const { const juce::ScopedLock l (uiLock); return uiState; }
     void setUiState (const juce::String& s) { const juce::ScopedLock l (uiLock); uiState = s; }
@@ -82,6 +82,7 @@ private:
     std::atomic<float> peak { 0 };
     std::atomic<bool> cut { false };
     std::atomic<int> voices { 0 };
+    std::atomic<long long> gridStep { -1 };   // FLUIDIC FX: the drip grid's step counter, for the window's auto-roll
 
     double pendingRevSize = -1; int revStableTicks = 0;
     bool prepared = false;

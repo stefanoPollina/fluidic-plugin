@@ -2,7 +2,9 @@
    Incoming audio (a breakbeat, a vocal, anything) is what the drip resonators ring with.
    A tempo-locked scheduler drops "drips" in the rhythm of the chosen pattern; each drip is a resonant,
    pitch-swept slice of the input. CHOP gates the dry signal to the drip rhythm, so the pattern re-cuts it.
-   The input's own hits can trigger drips too (SENSE), and MIDI/keys set the drips' pitch. */
+   The input's own hits can trigger drips too (SENSE), and MIDI/keys set the drips' pitch.
+   The synth's EXCITER is a tone layer here (an oscillator ringing each drip alongside the input), AMP shapes
+   each drip with one grid step as its note length, and the filter's KEY follows the drip pitch. */
 'use strict';
 const TAU = Math.PI * 2;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -15,7 +17,9 @@ const DEFAULTS = {
   chirp: 0, width: 0.4, size: 0.5, edge: 0, key: 1,
   mix: 0.5, chop: 0, drive: 1,
   fType: 'off', fCut: 2400, fRes: 0.25, fDrive: 0, fEnv: 0, fA: 0.005, fD: 0.25, fRate: 0.15, fDepth: 0,
-  level: 0.8
+  level: 0.8,
+  wave: 'saw', oscLevel: 0, hold: 0, octave: 0,          // EXCITER tone layer (LEVEL 0 = the input only)
+  a: 0.001, d: 0.4, s: 1, r: 4, fKey: 0                  // AMP per drip (neutral by default), filter KEY
 };
 function svf(st, o, x, g, k) {
   const a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
@@ -24,7 +28,8 @@ function svf(st, o, x, g, k) {
   return [v1, v2];
 }
 const makeDrop = () => ({ active: false, age: 0, size: 0.5, jit: 0, ratio: 0, amp: 0, rate: 1, fc: 900, ph: 0, gl: 0.707, gr: 0.707,
-  ic1: 0, ic2: 0, ic1b: 0, ic2b: 0, env: 0, len: 1, dGuard: 1, dgLvl: 0 });
+  ic1: 0, ic2: 0, ic1b: 0, ic2b: 0, env: 0, len: 1, dGuard: 1, dgLvl: 0,
+  note: 60, freq: 261.6, oph: 0, noise: new Float32Array(64), aenv: 0, astage: 1, gate: 1 });
 
 class FluidicFxProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -33,7 +38,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     this.drops = Array.from({ length: DROPS }, makeDrop);
     this.clock = 0; this.step = 0; this.pending = [];
     this.fast = 0; this.slow = 0; this.refractory = 0;
-    this.gate = 0; this.held = []; this.lfoPh = 0;
+    this.gate = 0; this.held = []; this.lfoPh = 0; this.lastNote = 60;
     this.fst = new Float64Array(8); this.fenv = 0; this.fstage = 0; this.fg = 0.1;
     this.events = []; this.peak = 0; this.cutFlash = 0;
     this.reportEvery = Math.round(sampleRate / 60); this.reportCount = 0;
@@ -63,6 +68,12 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     let width = clamp(p.width, 0, 1); if (p.pattern === '3d' && width < 0.8) width = 0.8;
     const angle = (clamp(d.jit * width, -1, 1) + 1) * 0.25 * Math.PI; d.gl = Math.cos(angle); d.gr = Math.sin(angle);
     d.len = clamp(p.fall, 0.02, 0.45) * sr * (1.5 + size * 4);
+    // tone layer: this drip's own oscillator, at the drip's note
+    d.note = n; d.freq = 440 * Math.pow(2, (n + 12 * (p.octave | 0) - 69) / 12);
+    for (let i = 0; i < 64; i++) d.noise[i] = Math.random() * 2 - 1;
+    // AMP: attack → decay to sustain for one grid step, then release
+    d.aenv = 0; d.astage = 1; d.gate = Math.max(1, sr * 60 / clamp(p.bpm, 30, 300) / Math.max(1, p.rate | 0));
+    this.lastNote = n;
     this.fenv = 0; this.fstage = 1;                       // the filter envelope follows the drips
     if (this.events.length < 64) this.events.push({ x: clamp(0.5 + d.jit * width * 0.45, 0.03, 0.97), size, kind, note: n, sweep: p.sweep, chirp: p.chirp });
   }
@@ -113,6 +124,9 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     const fDrive = clamp(p.fDrive, 0, 1), fDg = 1 + fDrive * 5, fDn = 1 / (1 + fDrive * 1.6);
     const fAk = 1 - Math.exp(-1 / (Math.max(0.0008, p.fA) * sr)), fDk = 1 - Math.exp(-1 / (Math.max(0.005, p.fD) * sr));
     const lfoInc = clamp(p.fRate, 0.01, 20) / sr, fDepth = clamp(p.fDepth, 0, 1) * 3, fEnvOct = clamp(p.fEnv, -1, 1) * 5;
+    const ek = (t) => 1 - Math.exp(-1 / (Math.max(0.0008, t) * sr)), ka = ek(p.a), kd = ek(p.d), kr = ek(p.r), sus = clamp(p.s, 0, 1);
+    const oscLevel = clamp(p.oscLevel, 0, 1), hold = clamp(p.hold, 0, 1), wave = p.wave;
+    const keyOct = clamp(p.fKey, 0, 1) * ((this.held.length ? this.held[this.held.length - 1] : this.lastNote) - 60) / 12;
     let peak = 0;
 
     for (let i = 0; i < n; i++) {
@@ -135,8 +149,14 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
       for (const d of this.drops) {
         if (!d.active) continue;
         d.age += 1;
-        d.env = d.age < 1 / kAtt ? d.age * kAtt : Math.exp(-(d.age - 1 / kAtt) / d.len);
-        if (d.env < 0.006 && d.age > 1 / kAtt) { d.active = false; continue; }   // inaudible from here: free the voice
+        // AMP: one grid step is the drip's note length
+        if (d.astage === 1) { d.aenv += (1.02 - d.aenv) * ka; if (d.aenv >= 1) { d.aenv = 1; d.astage = 2; } }
+        else if (d.astage === 2) { d.aenv += (sus - d.aenv) * kd; }
+        else d.aenv += (0 - d.aenv) * kr;
+        if (d.astage !== 3 && d.age >= d.gate) d.astage = 3;
+        const natural = d.age < 1 / kAtt ? d.age * kAtt : Math.exp(-(d.age - 1 / kAtt) / d.len);
+        if ((natural < 0.006 && d.age > 1 / kAtt) || (d.astage === 3 && d.aenv < 0.0004)) { d.active = false; continue; }
+        d.env = natural * Math.min(1, d.aenv);   // inaudible from here: free the voice
         if (d.env > gateNow) gateNow = d.env;
         let fall = Math.exp(-d.age / (fallT * sr * (0.45 + d.size * 0.9)));
         if (chirp > 0) fall *= Math.pow(fall, chirp);
@@ -149,6 +169,15 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
         const gb = Math.tan(Math.PI * clamp(fc * (1.5 + d.ratio), 40, sr * 0.45) / sr), kb = 1 / Math.max(1.6, dripQ * 0.62);
         const b1 = 1 / (1 + gb * (gb + kb)), b2 = gb * b1, b3 = gb * b2;
         let exc = mono * drive * d.env * d.dGuard;
+        if (oscLevel > 0.0001) {   // EXCITER tone layer, like the synth's oscillator
+          const ph = d.oph, dt = d.freq / sr; d.oph = wrap01(ph + dt);
+          let y;
+          if (wave === 'sine') y = Math.sin(TAU * ph);
+          else if (wave === 'square') y = ph < 0.5 ? 1 : -1;
+          else if (wave === 'noise') { const wn = Math.random() * 2 - 1; y = wn * (1 - hold) + d.noise[(ph * 64) | 0] * hold; }
+          else { y = 2 * ph - 1; if (ph < dt) { const t = ph / dt; y -= t + t - t * t - 1; } else if (ph > 1 - dt) { const t = (ph - 1) / dt; y -= t * t + t + t + 1; } }
+          exc += y * oscLevel * 0.35 * d.env * d.dGuard;   // scaled so LEVEL sits against a typical beat
+        }
         if (d.age < 4 && ping > 0.001) exc += (d.age < 2 ? 0.8 : 0.18) * ping * d.size;
         const v3 = exc - d.ic2, v1 = a1 * d.ic1 + a2 * v3, v2 = d.ic2 + a2 * d.ic1 + a3 * v3;
         d.ic1 = 2 * v1 - d.ic1; d.ic2 = 2 * v2 - d.ic2;
@@ -177,7 +206,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
       if (fOn) {
         if (this.fstage === 1) { this.fenv += (1.02 - this.fenv) * fAk; if (this.fenv >= 1) { this.fenv = 1; this.fstage = 2; } }
         else this.fenv += (0 - this.fenv) * fDk;
-        if ((i & 7) === 0) this.fg = Math.tan(Math.PI * clamp(p.fCut * Math.pow(2, fEnvOct * this.fenv + fDepth * Math.sin(this.lfoPh * TAU)), 20, sr * 0.45) / sr);
+        if ((i & 7) === 0) this.fg = Math.tan(Math.PI * clamp(p.fCut * Math.pow(2, keyOct + fEnvOct * this.fenv + fDepth * Math.sin(this.lfoPh * TAU)), 20, sr * 0.45) / sr);
         if (fDrive > 0.001) { ol = Math.tanh(ol * fDg) * fDn; or = Math.tanh(or * fDg) * fDn; }
         const st = this.fst, g = this.fg, k = fType === 'lp24' ? fk24 : fk;
         const pick = (x, o) => {

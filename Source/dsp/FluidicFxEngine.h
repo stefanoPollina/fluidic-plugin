@@ -18,6 +18,8 @@ struct FxEngineParams
     FilterType fType = FilterType::off;
     double fCut = 2400, fRes = 0.25, fDrive = 0, fEnv = 0, fA = 0.005, fD = 0.25, fRate = 0.15, fDepth = 0;
     double level = 0.8;
+    Wave wave = Wave::saw; double oscLevel = 0, hold = 0, octave = 0;   // EXCITER tone layer (LEVEL 0 = the input only)
+    double a = 0.001, d = 0.4, s = 1, r = 4, fKey = 0;                 // AMP per drip (neutral by default), filter KEY
 };
 
 class FluidicFxEngine
@@ -42,12 +44,14 @@ public:
     std::vector<DropEvent> events;
     double peak = 0; bool cutFlash = false;
     int activeDrops() const;
+    long long gridStep() const { return step; }   // for the window's auto-roll
 
 private:
     struct Drop
     {
         bool active = false; double age = 0, size = 0.5, jit = 0, ratio = 0, amp = 0, rate = 1, fc = 900, ph = 0, gl = 0.707, gr = 0.707;
         double ic1 = 0, ic2 = 0, ic1b = 0, ic2b = 0, env = 0, len = 1, dGuard = 1, dgLvl = 0;
+        int note = 60; double freq = 261.6, oph = 0; std::array<float, 64> noise {}; double aenv = 0; int astage = 1; double gate = 1;
     };
     struct Pending { double at; double size; DropKind kind; };
 
@@ -60,7 +64,7 @@ private:
     std::vector<Pending> pending;
     std::vector<int> held;
     Rng rng;
-    double sr = 48000, clock = 0, fast = 0, slow = 0, refractory = 0, gate = 0, lfoPh = 0;
+    double sr = 48000, clock = 0, fast = 0, slow = 0, refractory = 0, gate = 0, lfoPh = 0; int lastNote = 60;
     long long step = 0; bool gridFresh = true;
     std::array<double, 8> fst {}; double fenv = 0, fg = 0.1; int fstage = 0;
 };

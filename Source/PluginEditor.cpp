@@ -193,5 +193,6 @@ void FluidicEditor::timerCallback()
     }
     auto* fr = new juce::DynamicObject();
     fr->setProperty ("events", evs); fr->setProperty ("peak", f.peak); fr->setProperty ("cut", f.cut); fr->setProperty ("voices", f.voices);
+    if (f.step >= 0) fr->setProperty ("step", (juce::int64) f.step);   // FLUIDIC FX: auto-roll follows the grid
     browser->emitEventIfBrowserIsVisible ("frame", juce::var (fr));
 }

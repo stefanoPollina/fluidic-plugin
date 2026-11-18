@@ -15,7 +15,9 @@ int main (int argc, char** argv)
     auto& p = e.params();
     std::map<std::string, Pattern> P { {"even",Pattern::even},{"rain",Pattern::rain},{"both",Pattern::both},{"3d",Pattern::threeD},{"splash",Pattern::splash},{"stream",Pattern::stream},{"storm",Pattern::storm} };
     std::map<std::string, FilterType> F { {"off",FilterType::off},{"lp",FilterType::lp},{"lp24",FilterType::lp24},{"hp",FilterType::hp},{"bp",FilterType::bp},{"notch",FilterType::notch} };
-    std::map<std::string, double*> D { {"bpm",&p.bpm},{"density",&p.density},{"sense",&p.sense},{"cutoff",&p.cutoff},{"res",&p.res},{"ping",&p.ping},{"sweep",&p.sweep},{"fall",&p.fall},{"bubble",&p.bubble},{"wobble",&p.wobble},{"chirp",&p.chirp},{"width",&p.width},{"size",&p.size},{"edge",&p.edge},{"key",&p.key},{"mix",&p.mix},{"chop",&p.chop},{"drive",&p.drive},{"fCut",&p.fCut},{"fRes",&p.fRes},{"fDrive",&p.fDrive},{"fEnv",&p.fEnv},{"fA",&p.fA},{"fD",&p.fD},{"fRate",&p.fRate},{"fDepth",&p.fDepth},{"level",&p.level} };
+    std::map<std::string, double*> D { {"bpm",&p.bpm},{"density",&p.density},{"sense",&p.sense},{"cutoff",&p.cutoff},{"res",&p.res},{"ping",&p.ping},{"sweep",&p.sweep},{"fall",&p.fall},{"bubble",&p.bubble},{"wobble",&p.wobble},{"chirp",&p.chirp},{"width",&p.width},{"size",&p.size},{"edge",&p.edge},{"key",&p.key},{"mix",&p.mix},{"chop",&p.chop},{"drive",&p.drive},{"fCut",&p.fCut},{"fRes",&p.fRes},{"fDrive",&p.fDrive},{"fEnv",&p.fEnv},{"fA",&p.fA},{"fD",&p.fD},{"fRate",&p.fRate},{"fDepth",&p.fDepth},{"level",&p.level},
+        {"oscLevel",&p.oscLevel},{"hold",&p.hold},{"octave",&p.octave},{"a",&p.a},{"d",&p.d},{"s",&p.s},{"r",&p.r},{"fKey",&p.fKey} };
+    std::map<std::string, Wave> W { {"sine",Wave::sine},{"saw",Wave::saw},{"square",Wave::square},{"noise",Wave::noise} };
     std::ifstream in (argv[1]); std::string line; unsigned seed = 12345; std::vector<std::pair<double,int>> notes;
     while (std::getline (in, line))
     {
@@ -24,6 +26,7 @@ int main (int argc, char** argv)
         else if (k == "rate") ss >> p.rate;
         else if (k == "pattern") { std::string v; ss >> v; p.pattern = P.at (v); }
         else if (k == "fType") { std::string v; ss >> v; p.fType = F.at (v); }
+        else if (k == "wave") { std::string v; ss >> v; p.wave = W.at (v); }
         else if (D.count (k)) ss >> *D[k];
         else { std::fprintf (stderr, "unknown key %s\n", k.c_str()); return 2; }
     }

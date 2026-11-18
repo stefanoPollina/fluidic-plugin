@@ -11,6 +11,13 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
   - **STORM**: all of them at once.
   - **3D**: stereo chirps.
 
+  FLUIDIC FX also has all of the synth's panels, re-purposed for the effect:
+  - **EXCITER** is a tone layer, an oscillator that rings the drips alongside the track. LEVEL 0 means the track only.
+  - **AMP** shapes each drip, with one grid step as its note length.
+  - The filter's **KEY** follows the drip pitch.
+
+  **AUTO ROLL** rolls the dice by itself on the grid: every step, on the 8ths, the beats or the bars, or on your own pattern of steps, so the sound keeps re-shaping in time. Locks keep the parts you like. In a DAW it runs while the plugin window is open.
+
   The grid locks to your DAW's tempo and song position. **CHOP** gates the track to the drip rhythm, re-cutting it, and **MIX** goes from dry to wet. With **SENSE** up, the track's own hits trigger drips too, and MIDI notes sent to the effect set the drips' pitch. In Ableton it's under *Audio Effects*; in FL Studio, load it in a Mixer slot.
 
 - **Same sound as the prototype.** The engine is a line-by-line C++ port of the prototype's audio engine. Rendered with the same random seed, it matches the browser sample for sample. The effects bus (ping-pong delay, reverb, output limiter) matches the browser chain to within a fraction of a dB. See *Checking the sound* below.
