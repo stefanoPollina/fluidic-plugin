@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 project(FLUIDIC VERSION 0.1.0 LANGUAGES C CXX)
 
-# FLUIDIC — drip synthesis instrument (VST3 + Standalone).
+# FLUIDIC — drip synthesis: FLUIDIC (instrument: VST3 + Standalone) and FLUIDIC FX (audio effect: VST3).
 # JUCE is downloaded automatically at configure time; on Windows so is the WebView2 SDK.
 
 set(CMAKE_CXX_STANDARD 17)
@@ -23,7 +23,7 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
-set(FLUIDIC_DSP Source/dsp/FluidicEngine.cpp Source/dsp/FxBus.cpp)
+set(FLUIDIC_DSP Source/dsp/FluidicEngine.cpp Source/dsp/FluidicFxEngine.cpp Source/dsp/FxBus.cpp)
 
 if(FLUIDIC_BUILD_PLUGIN)
     if(WIN32)
@@ -59,19 +59,41 @@ if(FLUIDIC_BUILD_PLUGIN)
         VST3_CATEGORIES Instrument Synth
         COPY_PLUGIN_AFTER_BUILD ${FLUIDIC_COPY_AFTER_BUILD})
 
+    # FLUIDIC FX: the same engine as an audio effect. It goes on an audio track (Ableton: Audio Effects;
+    # FL Studio: a Mixer slot), the track's audio is what the drips ring with, and the grid follows the host.
+    juce_add_plugin(FLUIDIC_FX
+        PRODUCT_NAME "FLUIDIC FX"
+        COMPANY_NAME "FLUIDIC"
+        BUNDLE_ID "com.fluidic.fluidicfx"
+        PLUGIN_MANUFACTURER_CODE Fldc
+        PLUGIN_CODE Fdx1
+        FORMATS VST3
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT TRUE
+        NEEDS_MIDI_OUTPUT FALSE
+        IS_MIDI_EFFECT FALSE
+        EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+        NEEDS_WEB_BROWSER TRUE
+        NEEDS_WEBVIEW2 TRUE
+        VST3_CATEGORIES Fx
+        COPY_PLUGIN_AFTER_BUILD ${FLUIDIC_COPY_AFTER_BUILD})
+
     juce_add_binary_data(FluidicUI NAMESPACE BinaryData SOURCES ui/index.html)
 
-    target_sources(FLUIDIC PRIVATE Source/PluginProcessor.cpp Source/PluginEditor.cpp ${FLUIDIC_DSP})
-    target_include_directories(FLUIDIC PRIVATE Source)
-    target_compile_definitions(FLUIDIC PUBLIC
-        JUCE_WEB_BROWSER=1
-        JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
-        JUCE_USE_CURL=0
-        JUCE_VST3_CAN_REPLACE_VST2=0
-        JUCE_DISPLAY_SPLASH_SCREEN=0)
-    target_link_libraries(FLUIDIC
-        PRIVATE FluidicUI juce::juce_audio_utils juce::juce_dsp juce::juce_gui_extra
-        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    foreach(t FLUIDIC FLUIDIC_FX)
+        target_sources(${t} PRIVATE Source/PluginProcessor.cpp Source/PluginEditor.cpp ${FLUIDIC_DSP})
+        target_include_directories(${t} PRIVATE Source)
+        target_compile_definitions(${t} PUBLIC
+            JUCE_WEB_BROWSER=1
+            JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
+            JUCE_USE_CURL=0
+            JUCE_VST3_CAN_REPLACE_VST2=0
+            JUCE_DISPLAY_SPLASH_SCREEN=0)
+        target_link_libraries(${t}
+            PRIVATE FluidicUI juce::juce_audio_utils juce::juce_dsp juce::juce_gui_extra
+            PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+    endforeach()
+    target_compile_definitions(FLUIDIC_FX PUBLIC FLUIDIC_IS_FX=1)
 endif()
 
 if(FLUIDIC_BUILD_TESTS)

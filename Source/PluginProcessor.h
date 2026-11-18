@@ -2,8 +2,14 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "dsp/FluidicEngine.h"
+#include "dsp/FluidicFxEngine.h"
 #include "dsp/FxBus.h"
 #include "ParamTable.h"
+
+// Built twice from the same sources: FLUIDIC (instrument) and FLUIDIC FX (audio effect, FLUIDIC_IS_FX=1).
+#ifndef FLUIDIC_IS_FX
+ #define FLUIDIC_IS_FX 0
+#endif
 
 /* FLUIDIC — the plugin. Every dial is a host parameter (same IDs as the web prototype), so FL Studio's
    "Last tweaked" / automation clips and Ableton automation all work. The interface runs in a web view
@@ -23,7 +29,8 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "FLUIDIC"; }
+    static constexpr bool isFx = FLUIDIC_IS_FX != 0;
+    const juce::String getName() const override { return isFx ? "FLUIDIC FX" : "FLUIDIC"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -49,13 +56,16 @@ public:
     void setUiState (const juce::String& s) { const juce::ScopedLock l (uiLock); uiState = s; }
     std::atomic<int> stateVersion { 0 };                   // bumped when the host restores a project
 
-    static juce::File userBankFile();                      // %APPDATA%\FLUIDIC\user-bank.json
+    static juce::File userBankFile();                      // %APPDATA%\FLUIDIC\user-bank.json (FX: user-bank-fx.json)
 
 private:
     void timerCallback() override;                         // reverb size changes, like the prototype (debounced)
     void readParams();
 
     fluidic::FluidicEngine engine;
+    fluidic::FluidicFxEngine fxEngine;
+    std::atomic<float> *pRate{}, *pBpm{}, *pSense{}, *pMix{}, *pChop{}, *pDrive{};
+    std::vector<std::unique_ptr<std::atomic<float>>> fallbacks;   // stand-ins for parameters the other plugin owns
     fluidic::FxBus fx;
     juce::MidiMessageCollector uiNotes;
     std::atomic<bool> panicRequested { false };

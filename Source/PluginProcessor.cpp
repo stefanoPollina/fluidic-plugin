@@ -15,6 +15,9 @@ juce::String formatValue (const ParamSpec& s, float v)
     if (u == "bi") return (v > 0 ? "+" : "") + juce::String (juce::roundToInt (v * 100));
     if (u == "x")  return juce::String (std::pow (2.0f, (v - 0.5f) * (juce::String (s.id) == "drip.size" ? 2.4f : 4.0f)), 2) + "x";
     if (juce::String (s.id) == "drip.edge" && v < 0.01f) return "OFF";
+    if (u == "times") return juce::String (v, 2) + "x";
+    if (u == "bpm") return juce::String (juce::roundToInt (v)) + " BPM";
+    if (u == "pctoff") return v < 0.01f ? juce::String ("OFF") : juce::String (juce::roundToInt (v * 100)) + "%";
     return juce::String (juce::roundToInt (v * 100)) + "%";
 }
 
@@ -23,15 +26,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout makeLayout()
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
     for (auto& s : paramTable())
     {
+        if (FluidicProcessor::isFx ? s.synthOnly : s.fxOnly) continue;   // each plugin only shows its own dials
+        const float def = FluidicProcessor::isFx ? s.defFx : s.def;
         const juce::ParameterID pid { s.id, 1 };
         if (s.kind == Kind::choice)
         {
             juce::StringArray labels; for (auto* l : s.labels) labels.add (l);
-            layout.add (std::make_unique<juce::AudioParameterChoice> (pid, s.name, labels, (int) s.def));
+            layout.add (std::make_unique<juce::AudioParameterChoice> (pid, s.name, labels, (int) def));
         }
         else if (s.kind == Kind::integer)
         {
-            layout.add (std::make_unique<juce::AudioParameterInt> (pid, s.name, (int) s.min, (int) s.max, (int) s.def));
+            layout.add (std::make_unique<juce::AudioParameterInt> (pid, s.name, (int) s.min, (int) s.max, (int) def));
         }
         else
         {
@@ -44,7 +49,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout makeLayout()
                     [] (float a, float b, float v) { return std::log (v / a) / std::log (b / a); });
             }
             const ParamSpec* sp = &s;
-            layout.add (std::make_unique<juce::AudioParameterFloat> (pid, s.name, range, s.def,
+            layout.add (std::make_unique<juce::AudioParameterFloat> (pid, s.name, range, def,
                 juce::AudioParameterFloatAttributes().withStringFromValueFunction ([sp] (float v, int) { return formatValue (*sp, v); })));
         }
     }
@@ -53,10 +58,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout makeLayout()
 } // namespace
 
 FluidicProcessor::FluidicProcessor()
-    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor (isFx ? BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true)
+                                              .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                           : BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "FLUIDIC", makeLayout())
 {
-    auto P = [this] (const char* id) { auto* a = apvts.getRawParameterValue (id); jassert (a != nullptr); return a; };
+    auto P = [this] (const char* id)
+    {
+        if (auto* a = apvts.getRawParameterValue (id)) return a;
+        // a parameter only the other plugin has: read its default instead
+        float d = 0; for (auto& s : paramTable()) if (juce::String (s.id) == id) d = isFx ? s.defFx : s.def;
+        fallbacks.push_back (std::make_unique<std::atomic<float>> (d)); return fallbacks.back().get();
+    };
     pWave = P ("exc.wave"); pLevel = P ("exc.level"); pHold = P ("exc.hold"); pOct = P ("exc.octave");
     pPattern = P ("drip.pattern"); pCut = P ("drip.cutoff"); pRes = P ("drip.res"); pKey = P ("drip.key"); pPing = P ("drip.ping");
     pSweep = P ("drip.sweep"); pFall = P ("drip.fall"); pBubble = P ("drip.bubble"); pWobble = P ("drip.wobble"); pChirp = P ("drip.chirp");
@@ -65,8 +78,10 @@ FluidicProcessor::FluidicProcessor()
     pFA = P ("filt.attack"); pFD = P ("filt.decay"); pFKey = P ("filt.key"); pFRate = P ("filt.lfoRate"); pFDepth = P ("filt.lfoDepth");
     pA = P ("amp.a"); pD = P ("amp.d"); pS = P ("amp.s"); pR = P ("amp.r"); pOut = P ("out.level");
     pDMix = P ("fx.delayMix"); pDTime = P ("fx.delayTime"); pDFb = P ("fx.delayFb"); pRMix = P ("fx.revMix"); rawRevSize = P ("fx.revSize");
-    uiState = R"({"preset":"f:Sine Meditation"})";
+    pRate = P ("rhy.rate"); pBpm = P ("rhy.bpm"); pSense = P ("rhy.sense"); pMix = P ("in.mix"); pChop = P ("in.chop"); pDrive = P ("in.drive");
+    uiState = isFx ? R"({"preset":"f:Break Drips"})" : R"({"preset":"f:Sine Meditation"})";
     engine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
+    fxEngine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
     startTimerHz (20);
 }
 
@@ -74,12 +89,16 @@ FluidicProcessor::~FluidicProcessor() { stopTimer(); }
 
 bool FluidicProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo()) return false;
+    if (! isFx) return true;
+    const auto in = layouts.getMainInputChannelSet();   // the effect takes a stereo or mono track
+    return in == juce::AudioChannelSet::stereo() || in == juce::AudioChannelSet::mono();
 }
 
 void FluidicProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     engine.prepare (sampleRate);
+    fxEngine.prepare (sampleRate);
     fx.prepare (sampleRate, std::max (1, samplesPerBlock));
     fx.loadReverb (rawRevSize->load(), (uint32_t) juce::Random::getSystemRandom().nextInt());
     setLatencySamples (fx.latencySamples());   // the limiter's 6 ms look-ahead; DAWs compensate for it
@@ -103,6 +122,17 @@ void FluidicProcessor::readParams()
     p.fCut = v (pFCut); p.fRes = v (pFRes); p.fDrive = v (pFDrive); p.fEnv = v (pFEnv); p.fA = v (pFA); p.fD = v (pFD);
     p.fKey = v (pFKey); p.fRate = v (pFRate); p.fDepth = v (pFDepth);
     p.a = v (pA); p.d = v (pD); p.s = v (pS); p.r = v (pR); p.level = v (pOut);
+    if (isFx)
+    {
+        auto& q = fxEngine.params();
+        static constexpr int rates[] = { 1, 2, 4, 8 };   // 1/4, 1/8, 1/16, 1/32
+        q.pattern = p.pattern; q.rate = rates[ix (pRate, 3)]; q.bpm = v (pBpm); q.density = p.density; q.sense = v (pSense);
+        q.cutoff = p.cutoff; q.res = p.res; q.ping = p.ping; q.sweep = p.sweep; q.fall = p.fall; q.bubble = p.bubble; q.wobble = p.wobble;
+        q.chirp = p.chirp; q.width = p.width; q.size = p.size; q.edge = p.edge; q.key = p.key;
+        q.mix = v (pMix); q.chop = v (pChop); q.drive = v (pDrive);
+        q.fType = p.fType; q.fCut = p.fCut; q.fRes = p.fRes; q.fDrive = p.fDrive; q.fEnv = p.fEnv; q.fA = p.fA; q.fD = p.fD;
+        q.fRate = p.fRate; q.fDepth = p.fDepth; q.level = p.level;
+    }
     FxParams f;
     f.delayMix = v (pDMix); f.delayTime = v (pDTime); f.delayFb = v (pDFb); f.revMix = v (pRMix); f.revSize = v (rawRevSize);
     fx.setParams (f);
@@ -112,14 +142,46 @@ void FluidicProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
 {
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
-    buffer.clear();
-    if (! prepared || buffer.getNumChannels() < 2) return;
+    if (! isFx) buffer.clear();
+    if (! prepared || buffer.getNumChannels() < 2) { buffer.clear(); return; }
 
     readParams();
-    if (panicRequested.exchange (false)) engine.panic();
+    if (panicRequested.exchange (false)) { engine.panic(); fxEngine.panic(); }
     uiNotes.removeNextBlockOfMessages (midi, n);   // merge notes from the on-screen keyboard
 
     float* L = buffer.getWritePointer (0); float* R = buffer.getWritePointer (1);
+    if (isFx)
+    {
+        // a mono track arrives on channel 0 only
+        if (getTotalNumInputChannels() == 1) buffer.copyFrom (1, 0, buffer, 0, 0, n);
+        // follow the host: its tempo, and while it plays, its position (so the drip grid sits on the song's grid)
+        auto& q = fxEngine.params();
+        if (auto* ph = getPlayHead())
+            if (const auto pos = ph->getPosition())
+            {
+                if (const auto bpm = pos->getBpm()) if (*bpm > 1) q.bpm = *bpm;
+                if (pos->getIsPlaying()) { if (const auto ppq = pos->getPpqPosition()) fxEngine.setGridPosition (*ppq * q.rate); }
+                else fxEngine.hostStopped();
+            }
+        int at0 = 0;
+        for (const auto meta : midi)
+        {
+            const auto m = meta.getMessage();
+            const int at = juce::jlimit (0, n, meta.samplePosition);
+            if (at > at0) { fxEngine.process (L + at0, R + at0, L + at0, R + at0, at - at0); at0 = at; }
+            if (m.isNoteOn()) fxEngine.noteOn (m.getNoteNumber());
+            else if (m.isNoteOff()) fxEngine.noteOff (m.getNoteNumber());
+            else if (m.isAllNotesOff() || m.isAllSoundOff()) fxEngine.panic();
+        }
+        if (at0 < n) fxEngine.process (L + at0, R + at0, L + at0, R + at0, n - at0);
+        fx.process (L, R, n);
+        for (auto& e : fxEngine.events) { const auto w = dropFifo.write (1); if (w.blockSize1 > 0) dropBuf[(size_t) w.startIndex1] = e; }
+        fxEngine.events.clear();
+        peak.store ((float) fxEngine.peak);
+        if (fxEngine.cutFlash) { cut.store (true); fxEngine.cutFlash = false; }
+        voices.store (fxEngine.activeDrops());
+        return;
+    }
     int pos = 0;
     for (const auto meta : midi)
     {
@@ -195,7 +257,7 @@ void FluidicProcessor::setStateInformation (const void* data, int size)
 
 juce::File FluidicProcessor::userBankFile()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("FLUIDIC").getChildFile ("user-bank.json");
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("FLUIDIC").getChildFile (isFx ? "user-bank-fx.json" : "user-bank.json");
 }
 
 juce::AudioProcessorEditor* FluidicProcessor::createEditor() { return new FluidicEditor (*this); }

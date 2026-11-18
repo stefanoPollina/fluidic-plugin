@@ -4,13 +4,14 @@ rem which includes CMake. Run this from "Developer PowerShell / Command Prompt f
 setlocal
 cd /d "%~dp0"
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 || goto :fail
-cmake --build build --config Release --target FLUIDIC_VST3 FLUIDIC_Standalone --parallel || goto :fail
+cmake --build build --config Release --target FLUIDIC_VST3 FLUIDIC_Standalone FLUIDIC_FX_VST3 --parallel || goto :fail
 echo.
 echo Built:
 echo   build\FLUIDIC_artefacts\Release\VST3\FLUIDIC.vst3
 echo   build\FLUIDIC_artefacts\Release\Standalone\FLUIDIC.exe
+echo   "build\FLUIDIC_FX_artefacts\Release\VST3\FLUIDIC FX.vst3"
 echo.
-echo To install the VST3, copy FLUIDIC.vst3 into C:\Program Files\Common Files\VST3
+echo To install, copy FLUIDIC.vst3 and "FLUIDIC FX.vst3" into C:\Program Files\Common Files\VST3
 echo (or run install-vst3.bat as administrator), then rescan plugins in your DAW.
 pause
 exit /b 0

@@ -9,9 +9,11 @@ FluidicEditor::FluidicEditor (FluidicProcessor& p) : AudioProcessorEditor (&p), 
     dirty.reset (new std::atomic<bool>[T.size()]);
     for (size_t i = 0; i < T.size(); ++i)
     {
-        params.push_back (proc.apvts.getParameter (T[i].id));
-        indexOf[T[i].id] = (int) i;
+        auto* prm = proc.apvts.getParameter (T[i].id);   // null for the other plugin's dials
+        params.push_back (prm);
         dirty[i] = false;
+        if (prm == nullptr) continue;
+        indexOf[T[i].id] = (int) i;
         proc.apvts.addParameterListener (T[i].id, this);
     }
     uiTouched.assign (T.size(), 0);
@@ -25,6 +27,7 @@ FluidicEditor::FluidicEditor (FluidicProcessor& p) : AudioProcessorEditor (&p), 
                                      .withBackgroundColour (juce::Colour (0xff0d0e10))
                                      .withStatusBarDisabled())
         .withNativeIntegrationEnabled()
+        .withInitialisationData ("fluidicMode", FluidicProcessor::isFx ? "fx" : "synth")
         .withKeepPageLoadedWhenBrowserIsHidden()
         .withResourceProvider ([this] (const juce::String& url) { return getResource (url); })
         .withEventListener ("ready", [this] (const juce::var&) { pageReady = true; sendInit ("init"); })
@@ -77,7 +80,7 @@ FluidicEditor::FluidicEditor (FluidicProcessor& p) : AudioProcessorEditor (&p), 
 FluidicEditor::~FluidicEditor()
 {
     stopTimer();
-    for (auto& s : paramTable()) proc.apvts.removeParameterListener (s.id, this);
+    for (auto& s : paramTable()) if (proc.apvts.getParameter (s.id) != nullptr) proc.apvts.removeParameterListener (s.id, this);
 }
 
 void FluidicEditor::resized() { if (browser) browser->setBounds (getLocalBounds()); }
@@ -114,7 +117,7 @@ juce::String FluidicEditor::readBank()
 void FluidicEditor::sendInit (const juce::Identifier& eventId)
 {
     auto* values = new juce::DynamicObject();
-    for (size_t i = 0; i < params.size(); ++i) { values->setProperty (paramTable()[i].id, valueForUi ((int) i)); dirty[i] = false; }
+    for (size_t i = 0; i < params.size(); ++i) { if (params[i] == nullptr) continue; values->setProperty (paramTable()[i].id, valueForUi ((int) i)); dirty[i] = false; }
     auto* o = new juce::DynamicObject();
     o->setProperty ("values", juce::var (values));
     o->setProperty ("ui", proc.getUiState());
