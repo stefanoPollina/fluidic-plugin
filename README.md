@@ -16,7 +16,12 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
   - **AMP** shapes each drip, with one grid step as its note length.
   - The filter's **KEY** follows the drip pitch.
 
-  **AUTO ROLL** rolls the dice by itself on the grid: every step, on the 8ths, the beats or the bars, or on your own pattern of steps, so the sound keeps re-shaping in time. Locks keep the parts you like. In a DAW it runs while the plugin window is open.
+  **AUTO ROLL** rolls the dice by itself on the grid, so the sound keeps re-shaping in time. The rhythms:
+  - **Straight:** every step, 8ths, beats, half-time, bars.
+  - **Syncopated:** off-beats, backbeat, tresillo, son and rumba clave, bossa nova, dotted 8ths, gallop, Euclidean 5/7/9, and a random bar.
+  - **Your own pattern** of steps.
+
+  **HOLD GRID** keeps the 1/4–1/32 grid and **HOLD PATTERN** keeps the drip style while the rest rolls. Locks keep any other part you like. In a DAW, auto-roll runs while the plugin window is open.
 
   The grid locks to your DAW's tempo and song position. **CHOP** gates the track to the drip rhythm, re-cutting it, and **MIX** goes from dry to wet. With **SENSE** up, the track's own hits trigger drips too, and MIDI notes sent to the effect set the drips' pitch. In Ableton it's under *Audio Effects*; in FL Studio, load it in a Mixer slot.
 

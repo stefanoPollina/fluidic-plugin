@@ -159,6 +159,9 @@
   .segs.mini { display: grid; gap: 3px; }
   .segs.mini button { padding: 4px 7px; font-size: 9.5px; }
   .segs.mini button.cursed.on { background: var(--curse); border-color: var(--curse); }
+  .holds { display: flex; gap: 4px; }
+  .autosel { background: #0b0c0e; border: 1px solid var(--line-2); color: var(--text); border-radius: 6px; height: 26px; padding: 0 6px; font: inherit; font-size: 10.5px; max-width: 210px; cursor: pointer; }
+  .lock.hold { white-space: nowrap; height: 26px; padding: 0 8px; }
   .stepgrid { flex: 1; display: grid; gap: 3px; min-width: 160px; }
   .stepbox { height: 20px; border-radius: 4px; border: 1px solid var(--line-2); background: #121316; cursor: pointer; padding: 0; }
   .stepbox.beat { border-color: #3a414b; }
@@ -595,6 +598,7 @@ const Fluidic = (() => {
 
     let menu = null;
     const lockedIds = new Set(), lockedSecs = new Set();
+    let holdRate = false, holdPattern = false;   // FLUIDIC FX auto-roll HOLD switches (also respected by the dice you press)
     function closeMenu() { if (menu) { menu.remove(); menu = null; } }
     document.addEventListener('pointerdown', (e) => { if (menu && !menu.contains(e.target)) closeMenu(); });
 
@@ -830,10 +834,29 @@ const Fluidic = (() => {
        The dice roll themselves on the drip grid: every step, on the 8ths, on the beats, once a bar, or on
        your own pattern of steps. The sound keeps re-shaping in time with the beat; locks keep what you like. */
     let autoOn = false, autoDie = 'all', autoMode = 'beats', autoMask = [], autoPos = -1, lastGridStep = null, autoBoxes = [];
-    let autoBtn = null, autoDieBtns = [], autoModeBtns = [], autoGrid = null;
+    let autoBtn = null, autoDieBtns = [], autoSel = null, autoGrid = null, holdRateBtn = null, holdPatBtn = null;
     const stepsPerBar = () => 4 * Math.max(1, values['rhy.rate'] | 0);
+    // roll rhythms, written on a 16-step bar (x = roll) and fitted to whatever grid is playing
+    const euclid = (k) => Array.from({ length: 16 }, (_, i) => Math.floor(i * k / 16) !== Math.floor((i - 1) * k / 16) || i === 0);
+    const pat16 = (str) => str.split('').map((c) => c === 'x');
+    const AUTO_STYLES = [
+      ['STRAIGHT', [['steps', 'Every step · 1 2 3 4 5 6 7 8…'], ['8ths', '8ths · 1 and 2 and…'], ['beats', 'Beats · 1 and and and 2…'], ['half', 'Half-time · 1 and 3'], ['bars', 'Bars · once, on the 1']]],
+      ['SYNCOPATED', [['offbeats', 'Off-beats · the "ands"'], ['backbeat', 'Backbeat · 2 and 4'], ['tresillo', 'Tresillo · 3·3·2'], ['clave32', 'Son clave 3-2'], ['clave23', 'Son clave 2-3'],
+        ['rumba', 'Rumba clave 3-2'], ['bossa', 'Bossa nova'], ['dotted', 'Dotted 8ths · 3 against 4'], ['gallop', 'Gallop · 1 . a e'],
+        ['euclid5', 'Euclid 5 in 16'], ['euclid7', 'Euclid 7 in 16'], ['euclid9', 'Euclid 9 in 16'], ['random', 'Random · new every bar']]],
+      ['YOURS', [['custom', 'Your pattern (click the steps)']]]
+    ];
+    const PAT16 = {
+      half: pat16('x.......x.......'), offbeats: pat16('..x...x...x...x.'), backbeat: pat16('....x.......x...'),
+      tresillo: pat16('x..x..x.x..x..x.'), clave32: pat16('x..x..x...x.x...'), clave23: pat16('..x.x...x..x..x.'),
+      rumba: pat16('x..x...x..x.x...'), bossa: pat16('x..x..x...x..x..'), dotted: pat16('x..x..x..x..x..x'),
+      gallop: pat16('x.xxx.xxx.xxx.xx'), euclid5: euclid(5), euclid7: euclid(7), euclid9: euclid(9)
+    };
+    const AUTO_KEYS = AUTO_STYLES.flatMap(([, g]) => g.map(([k]) => k));
     function maskFor(mode, len) {
       const per = len / 4;   // steps per beat
+      if (mode === 'random') { const m = Array.from({ length: len }, () => Math.random() < 0.35); m[0] = m[0] || !m.some(Boolean); return m; }
+      if (PAT16[mode]) { const m = new Array(len).fill(false); PAT16[mode].forEach((on, i) => { if (on) m[Math.floor(i * len / 16)] = true; }); return m; }
       return Array.from({ length: len }, (_, i) => mode === 'steps' ? true : mode === '8ths' ? i % Math.max(1, per / 2) === 0 : mode === 'beats' ? i % per === 0 : i === 0);
     }
     function resizeMask() {
@@ -849,7 +872,13 @@ const Fluidic = (() => {
       resizeMask();
       autoBtn.classList.toggle('on', autoOn); autoBtn.textContent = autoOn ? 'AUTO ROLL · ON' : 'AUTO ROLL';
       autoDieBtns.forEach(([k, b]) => b.classList.toggle('on', k === autoDie));
-      autoModeBtns.forEach(([k, b]) => b.classList.toggle('on', k === autoMode));
+      if (autoSel) autoSel.value = autoMode;
+      if (holdRateBtn) {
+        holdRateBtn.classList.toggle('on', holdRate);
+        holdRateBtn.textContent = 'HOLD GRID ' + ((RATES.find((r) => r[0] === values['rhy.rate']) || ['', ''])[1]);
+        holdPatBtn.classList.toggle('on', holdPattern);
+        holdPatBtn.textContent = 'HOLD ' + ((PATTERNS.find((r) => r[0] === values['drip.pattern']) || ['', 'PATTERN'])[1]);
+      }
       if (autoBoxes.length !== autoMask.length) {
         autoGrid.innerHTML = ''; const per = autoMask.length / 4;
         autoBoxes = autoMask.map((_, i) => {
@@ -870,6 +899,7 @@ const Fluidic = (() => {
         if (!autoOn) continue;
         resizeMask();
         autoPos = ((lastGridStep % autoMask.length) + autoMask.length) % autoMask.length;
+        if (autoPos === 0 && autoMode === 'random') autoMask = maskFor('random', autoMask.length);   // a new random bar
         if (autoMask[autoPos]) {
           const d = DICE.find((x) => x[0] === autoDie);
           if (autoDie === 'all') rollAll(true); else if (d) roll(d[0], d[1], true);
@@ -888,24 +918,37 @@ const Fluidic = (() => {
         b.title = key === 'all' ? 'Roll the whole set' : key === 'cursed' ? 'Roll the cursed d20 (no safe ranges)' : 'Roll the ' + key;
         b.addEventListener('click', () => { autoDie = key; paintAuto(); persistUi(); }); dieSegs.append(b); return [key, b];
       });
-      const modeSegs = el('div', 'segs mini'); modeSegs.style.gridTemplateColumns = 'repeat(4, auto)';
-      autoModeBtns = [['steps', 'STEPS'], ['8ths', '8THS'], ['beats', 'BEATS'], ['bars', 'BARS']].map(([k, label]) => {
-        const b = el('button', '', label); b.type = 'button';
-        b.title = k === 'steps' ? 'Every grid step: 1 2 3 4 5 6 7 8…' : k === '8ths' ? 'On the 8ths: 1 and 2 and 3 and 4 and' : k === 'beats' ? 'On the beats: 1 and and and 2 and and and…' : 'Once a bar, on the 1';
-        b.addEventListener('click', () => { autoMode = k; autoMask = maskFor(k, stepsPerBar()); paintAuto(); persistUi(); }); modeSegs.append(b); return [k, b];
+      autoSel = el('select', 'autosel'); autoSel.title = 'When the dice roll: straight, syncopated, or your own pattern of steps';
+      AUTO_STYLES.forEach(([group, items]) => {
+        const og = el('optgroup'); og.label = group;
+        items.forEach(([k, label]) => { const o = el('option', '', label); o.value = k; og.append(o); });
+        autoSel.append(og);
       });
+      autoSel.addEventListener('change', () => { autoMode = autoSel.value; if (autoMode !== 'custom') autoMask = maskFor(autoMode, stepsPerBar()); paintAuto(); persistUi(); });
+      autoSel.addEventListener('keydown', (e) => e.stopPropagation());
+      const modeSegs = autoSel;
       autoGrid = el('div', 'stepgrid');
-      ar.append(autoBtn, el('small', '', 'ROLL'), dieSegs, el('small', '', 'ON'), modeSegs, autoGrid);
+      // HOLD: keep the grid (1/4 · 1/8 · 1/16 · 1/32) and/or the drip pattern while everything else rolls
+      holdRateBtn = el('button', 'lock hold'); holdRateBtn.type = 'button';
+      holdRateBtn.title = 'On: rolls keep this grid. Off: rolls can move between 1/4, 1/8, 1/16 and 1/32';
+      holdRateBtn.addEventListener('click', () => { holdRate = !holdRate; paintAuto(); paintLocks(); persistUi(); });
+      holdPatBtn = el('button', 'lock hold'); holdPatBtn.type = 'button';
+      holdPatBtn.title = 'On: rolls keep this drip pattern. Off: rolls can change it';
+      holdPatBtn.addEventListener('click', () => { holdPattern = !holdPattern; paintAuto(); paintLocks(); persistUi(); });
+      const holds = el('div', 'holds'); holds.append(holdRateBtn, holdPatBtn);
+      ar.append(autoBtn, el('small', '', 'ROLL'), dieSegs, el('small', '', 'ON'), modeSegs, holds, autoGrid);
+      widgets.push({ id: 'drip.pattern', paint: paintAuto });
       tray.append(ar);
       widgets.push({ id: 'rhy.rate', paint: paintAuto });
       paintAuto();
     }
-    function autoState() { return { on: autoOn, die: autoDie, mode: autoMode, mask: autoMode === 'custom' ? autoMask.map((x) => (x ? 1 : 0)).join('') : '' }; }
+    function autoState() { return { on: autoOn, die: autoDie, mode: autoMode, mask: autoMode === 'custom' ? autoMask.map((x) => (x ? 1 : 0)).join('') : '', holdRate, holdPattern }; }
     function setAutoState(a) {
       if (!a || !FX) return;
       autoOn = !!a.on; autoDie = DICE.some((d) => d[0] === a.die) ? a.die : 'all';
-      autoMode = ['steps', '8ths', 'beats', 'bars', 'custom'].includes(a.mode) ? a.mode : 'beats';
+      autoMode = AUTO_KEYS.includes(a.mode) ? a.mode : 'beats';
       autoMask = autoMode === 'custom' && a.mask ? a.mask.split('').map((c) => c === '1') : [];
+      holdRate = !!a.holdRate; holdPattern = !!a.holdPattern;
       paintAuto();
     }
     const moreCue = () => mid.classList.toggle('more', mid.scrollTop + mid.clientHeight < mid.scrollHeight - 2);
@@ -917,7 +960,8 @@ const Fluidic = (() => {
       root.querySelectorAll('.panel[data-sec]').forEach((pn) => pn.classList.toggle('held', lockedSecs.has(pn.dataset.sec)));
       root.querySelectorAll('.knob[data-id]').forEach((k) => { const id = k.dataset.id, on = lockedIds.has(id) || lockedSecs.has(id.split('.')[0]); k.classList.toggle('locked', on && POOL.includes(id)); });
     }
-    const free = (id) => POOL.includes(id) && !lockedIds.has(id) && !lockedSecs.has(id.split('.')[0]);
+    const free = (id) => POOL.includes(id) && !lockedIds.has(id) && !lockedSecs.has(id.split('.')[0])
+      && !(id === 'rhy.rate' && holdRate) && !(id === 'drip.pattern' && holdPattern);   // the auto-roll HOLD switches
 
     // history: every roll (and preset load) is a step you can walk back through
     let history = [], hp = -1;
