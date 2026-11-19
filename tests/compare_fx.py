@@ -19,7 +19,7 @@ JS = """async ([prm, seed, secs]) => {
   return [inp, o];
 }"""
 CASES = {
- 'even 1/16 (Break Drips)': {'pattern':'even','rate':4},
+ 'even 1/16 (Drippiness)': {'pattern':'even','rate':4},
  'rain': {'pattern':'rain','density':.6},
  'splash': {'pattern':'splash'},
  'stream 1/32': {'pattern':'stream','rate':8},

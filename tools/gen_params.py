@@ -29,7 +29,7 @@ struct ParamSpec
     const char* id; const char* name; Kind kind; float min, max, def; bool log;
     std::vector<const char*> keys, labels;   // choice parameters: UI keys and display names
     const char* unit;                         // display: "%", "Hz", "ms", "s", "oct", "bi", "x"
-    float defFx;                              // FLUIDIC FX opens on Break Drips; FLUIDIC on Sine Meditation
+    float defFx;                              // FLUIDIC FX opens on Drippiness; FLUIDIC on Sine Meditation
     bool synthOnly, fxOnly;                   // which plugin the parameter belongs to
 };
 inline const std::vector<ParamSpec>& paramTable()

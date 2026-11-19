@@ -333,7 +333,7 @@ const Fluidic = (() => {
      Safe ranges keep a roll musical; the cursed die ignores them. Output level and EDGE are never touched by any die. */
   // FLUIDIC FX presets: put a breakbeat through them
   const PRESETS_FX = {
-    'Break Drips': { 'drip.pattern': 'even', 'rhy.rate': '4', 'in.mix': 0.5, 'drip.cutoff': 900, 'drip.res': 0.85, 'drip.ping': 0.5, 'drip.sweep': 2, 'drip.fall': 0.07, 'drip.bubble': 0.5, 'drip.wobble': 0.3, 'drip.width': 0.4, 'drip.key': 1, 'fx.revMix': 0.2, 'fx.delayMix': 0.12 },
+    'Drippiness': { 'drip.pattern': 'even', 'rhy.rate': '4', 'in.mix': 0.5, 'drip.cutoff': 900, 'drip.res': 0.85, 'drip.ping': 0.5, 'drip.sweep': 2, 'drip.fall': 0.07, 'drip.bubble': 0.5, 'drip.wobble': 0.3, 'drip.width': 0.4, 'drip.key': 1, 'fx.revMix': 0.2, 'fx.delayMix': 0.12 },
     'Rain Chop': { 'drip.pattern': 'rain', 'rhy.rate': '4', 'drip.density': 0.6, 'in.chop': 0.85, 'in.mix': 0.45, 'drip.cutoff': 1300, 'drip.res': 0.82, 'drip.fall': 0.06, 'drip.width': 0.6, 'drip.key': 1, 'fx.revMix': 0.18, 'fx.delayMix': 0.1 },
     'Splash Fills': { 'drip.pattern': 'splash', 'rhy.rate': '4', 'drip.density': 0.5, 'in.mix': 0.55, 'drip.cutoff': 700, 'drip.res': 0.9, 'drip.ping': 0.8, 'drip.chirp': 0.5, 'drip.fall': 0.08, 'drip.key': 1, 'fx.revMix': 0.35, 'fx.delayMix': 0.15 },
     'Stream Rolls': { 'drip.pattern': 'stream', 'rhy.rate': '8', 'drip.density': 0.4, 'in.mix': 0.5, 'drip.cutoff': 1800, 'drip.res': 0.8, 'drip.size': 0.3, 'drip.fall': 0.04, 'drip.sweep': 1.4, 'drip.key': 1, 'fx.revMix': 0.2, 'fx.delayMix': 0.1 },
@@ -412,7 +412,7 @@ const Fluidic = (() => {
     const ACTIVE = new Set(PARAMS.filter((p) => (FX ? !p.synthOnly : !p.fxOnly)).map((p) => p.id));
     const POOL = DICE_POOL.filter((id) => ACTIVE.has(id));
     const SECS = FX ? [['exc', 'EXC'], ['drip', 'DRIP'], ['filt', 'FILTER'], ['amp', 'AMP'], ['fx', 'SPACE'], ['in', 'INPUT'], ['rhy', 'RHYTHM']] : SEC_NAMES;
-    const PRE = FX ? PRESETS_FX : PRESETS, OPEN_ON = FX ? 'Break Drips' : 'Sine Meditation';
+    const PRE = FX ? PRESETS_FX : PRESETS, OPEN_ON = FX ? 'Drippiness' : 'Sine Meditation';
     if (FX) root.classList.add('fx-mode');
     const keysActive = opts.keysActive || (() => true);
     // plugin: set when running inside the FLUIDIC VST3 (see juceBridge at the end of the page)
@@ -1464,7 +1464,7 @@ const Fluidic = (() => {
 
     if (!plugin && FX) { try { setAutoState(JSON.parse(localStorage.getItem('fluidic-fx-auto') || 'null')); } catch (e) {} }   // before the preset saves the state
     if (!plugin) { try { setHoldState(JSON.parse(localStorage.getItem(FX ? 'fluidic-fx-holds' : 'fluidic-holds') || 'null')); } catch (e) {} }
-    if (!plugin) loadPreset(OPEN_ON);   // FLUIDIC opens on the sine pad; FLUIDIC FX on Break Drips
+    if (!plugin) loadPreset(OPEN_ON);   // FLUIDIC opens on the sine pad; FLUIDIC FX on Drippiness
     else {
       // the plugin owns the sound: take its values (a new instance starts on Sine Meditation; a project brings its own)
       const fromHost = (m) => {
@@ -1472,7 +1472,7 @@ const Fluidic = (() => {
         let ui = {}; try { ui = JSON.parse(m.ui || '{}') || {}; } catch (e) {}
         PARAMS.forEach((p) => { if (m.values && m.values[p.id] != null) values[p.id] = m.values[p.id]; });
         hostVals = Object.assign({}, values);
-        current = ui.preset || 'f:' + OPEN_ON;
+        current = (ui.preset === 'f:Break Drips' ? 'f:Drippiness' : ui.preset) || 'f:' + OPEN_ON;   // renamed preset in older projects
         if (ui.view === 'side' || ui.view === 'top') { vizView = ui.view; viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === vizView)); }
         fillPresets(); widgets.forEach((w) => w.paint());
         if (ui.auto) setAutoState(ui.auto);

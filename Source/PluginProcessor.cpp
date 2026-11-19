@@ -79,7 +79,7 @@ FluidicProcessor::FluidicProcessor()
     pA = P ("amp.a"); pD = P ("amp.d"); pS = P ("amp.s"); pR = P ("amp.r"); pOut = P ("out.level");
     pDMix = P ("fx.delayMix"); pDTime = P ("fx.delayTime"); pDFb = P ("fx.delayFb"); pRMix = P ("fx.revMix"); rawRevSize = P ("fx.revSize");
     pRate = P ("rhy.rate"); pBpm = P ("rhy.bpm"); pSense = P ("rhy.sense"); pMix = P ("in.mix"); pChop = P ("in.chop"); pDrive = P ("in.drive");
-    uiState = isFx ? R"({"preset":"f:Break Drips"})" : R"({"preset":"f:Sine Meditation"})";
+    uiState = isFx ? R"({"preset":"f:Drippiness"})" : R"({"preset":"f:Sine Meditation"})";
     engine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
     fxEngine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
     startTimerHz (20);
