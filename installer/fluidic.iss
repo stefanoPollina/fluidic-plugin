@@ -2,7 +2,9 @@
 ; Puts both plugins in the standard VST3 folder (C:\Program Files\Common Files\VST3), where Ableton Live
 ; and FL Studio both look: FLUIDIC (instrument) and FLUIDIC FX (audio effect). The standalone synth goes in Program Files.
 #define AppName "FLUIDIC"
-#define AppVersion "0.2.0"
+#ifndef AppVersion
+  #define AppVersion "0.3.0"   ; the GitHub build passes the CMake version + its build number, e.g. 0.3.0.42
+#endif
 #define Built "..\build\FLUIDIC_artefacts\Release"
 #define BuiltFx "..\build\FLUIDIC_FX_artefacts\Release"
 

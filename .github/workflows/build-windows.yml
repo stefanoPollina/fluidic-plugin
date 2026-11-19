@@ -23,7 +23,9 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
-          & $iscc installer\fluidic.iss
+          # version = CMakeLists.txt's project version + this build's number (0.3.0.42): newer downloads have higher numbers
+          $v = (Select-String -Path CMakeLists.txt -Pattern 'project\(FLUIDIC VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          & $iscc "/DAppVersion=$v.$env:GITHUB_RUN_NUMBER" installer\fluidic.iss
 
       - name: Collect the downloads in one flat folder
         shell: pwsh

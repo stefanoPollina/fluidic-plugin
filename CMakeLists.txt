@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(FLUIDIC VERSION 0.1.0 LANGUAGES C CXX)
+project(FLUIDIC VERSION 0.3.0 LANGUAGES C CXX)   # the one version number: plugins, installer and download names
 
 # FLUIDIC — drip synthesis: FLUIDIC (instrument: VST3 + Standalone) and FLUIDIC FX (audio effect: VST3).
 # JUCE is downloaded automatically at configure time; on Windows so is the WebView2 SDK.

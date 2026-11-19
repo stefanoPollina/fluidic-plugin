@@ -45,7 +45,7 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
 1. Create a new repository on GitHub, e.g. `fluidic`, and push this folder to it.
 2. Open the **Actions** tab. The *Build FLUIDIC for Windows* run starts on every push and takes about 10–15 minutes the first time.
 3. Open the finished run and download **FLUIDIC-windows** from *Artifacts*. The zip opens straight onto:
-   - `FLUIDIC-0.2.0-Windows-Setup.exe`, the installer. It puts both plugins in `C:\Program Files\Common Files\VST3`.
+   - `FLUIDIC-0.3.0.N-Windows-Setup.exe`, the installer (N is the build number: higher is newer). It puts both plugins in `C:\Program Files\Common Files\VST3`.
    - `FLUIDIC.vst3`, `FLUIDIC FX.vst3` and `FLUIDIC.exe`, if you'd rather copy them yourself.
 
 ### 2. Build on your PC
