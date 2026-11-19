@@ -40,7 +40,15 @@
   .viz .view { position: absolute; right: 10px; top: 8px; display: flex; border: 1px solid #23414a; border-radius: 6px; overflow: hidden; z-index: 2; }
   .viz .view button { background: rgba(5,12,16,.7); color: #6f9aa3; border: 0; font: inherit; font-size: 10px; letter-spacing: .16em; padding: 4px 9px; cursor: pointer; }
   .viz .view button.on { background: #0f3a44; color: var(--aqua); }
-  .viz .view button.water { border-left: 1px solid #23414a; }
+  .viz .view button.water, .viz .view button.full { border-left: 1px solid #23414a; }
+  /* IMMERSIVE: the water fills (nearly) the whole window */
+  .fluidic.immersive > .viz { position: fixed; inset: 10px; z-index: 60; flex: none; height: auto; box-shadow: 0 0 0 100vmax rgba(1,4,6,.94); }
+  .fluidic.immersive > .viz .view { top: 12px; right: 12px; }
+  .fluidic.immersive > .viz .view button { font-size: 11px; padding: 6px 11px; }
+  .fluidic.immersive > .viz .hud { font-size: 11px; }
+  .viz .immhint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); color: #6f9aa3; font-size: 10px; letter-spacing: .16em; pointer-events: none; opacity: 0; transition: opacity .6s; white-space: nowrap; }
+  .fluidic.immersive > .viz .immhint.show { opacity: .8; }
+  .viz.notouch canvas { cursor: default; }
 
   .rack { display: grid; grid-template-columns: 1fr 1.7fr 1fr 1.25fr; gap: 10px; }
   .rack .drip { grid-column: 2 / 5; }
@@ -486,7 +494,7 @@ const Fluidic = (() => {
       });
     }
     function persistUi() {
-      const st = { preset: current, view: vizView, water: vizWater };
+      const st = { preset: current, view: vizView, water: vizWater, touch: touchOn };
       if (FX) { st.auto = autoState(); st.seq = seqData(); }
       if (typeof holdState === 'function' && panelHolds) st.holds = holdState();
       if (plugin) plugin.saveUi(JSON.stringify(st));
@@ -847,7 +855,29 @@ const Fluidic = (() => {
     const paintWater = () => waterBtn.classList.toggle('on', vizWater === 'fluid');
     waterBtn.addEventListener('click', () => { vizWater = vizWater === 'fluid' ? 'calm' : 'fluid'; try { localStorage.setItem('fluidic-water', vizWater); } catch (e) {} paintWater(); persistUi(); });
     viewSw.append(waterBtn); paintWater();
-    vizBox.append(canvas, hud, viewSw, startOverlay); root.append(vizBox);
+    // TOUCH: play the water with the mouse or a finger (on by default); FULL: the water fills (nearly) the whole window
+    let touchOn = true; try { touchOn = localStorage.getItem('fluidic-touch') !== 'off'; } catch (e) {}
+    const touchBtn = el('button', 'water', 'TOUCH'); touchBtn.title = 'Play the water: drag across it with the mouse or a finger (click to turn off)';
+    const paintTouch = () => { touchBtn.classList.toggle('on', touchOn); vizBox.classList.toggle('notouch', !touchOn); };
+    touchBtn.addEventListener('click', () => { touchOn = !touchOn; try { localStorage.setItem('fluidic-touch', touchOn ? 'on' : 'off'); } catch (e) {} paintTouch(); persistUi(); });
+    const fullBtn = el('button', 'full', 'FULL'); fullBtn.title = 'Immersive: the water fills the window (Esc or click again to come back)';
+    const immHint = el('div', 'immhint', 'DRAG ACROSS THE WATER TO PLAY · PLAY THE KEYS · ESC TO RETURN');
+    let immersive = false, immTimer = 0;
+    function setImmersive(on) {
+      if (on === immersive) return;
+      immersive = on; root.classList.toggle('immersive', on); fullBtn.classList.toggle('on', on); fullBtn.textContent = on ? 'EXIT' : 'FULL';
+      // a browser page also goes truly full screen; inside a plugin or another page it fills the window
+      if (!plugin && !opts.embedded && document.fullscreenEnabled) {
+        try { if (on && !document.fullscreenElement) root.requestFullscreen().catch(() => {}); else if (!on && document.fullscreenElement === root) document.exitFullscreen().catch(() => {}); } catch (e) {}
+      }
+      clearTimeout(immTimer); immHint.classList.toggle('show', on && touchOn); if (on) immTimer = setTimeout(() => immHint.classList.remove('show'), 4000);
+      setTimeout(resize, 30);
+    }
+    fullBtn.addEventListener('click', () => setImmersive(!immersive));
+    document.addEventListener('fullscreenchange', () => { if (immersive && document.fullscreenElement !== root && !plugin && !opts.embedded) setImmersive(false); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && immersive) setImmersive(false); });
+    viewSw.append(touchBtn, fullBtn);
+    vizBox.append(canvas, hud, viewSw, immHint, startOverlay); root.append(vizBox); paintTouch();
     const mid = el('div', 'mid'); root.append(mid);   // the only part that scrolls, and only on short windows
     startOverlay.addEventListener('click', async () => { startOverlay.remove(); try { await start(); await ctx.resume(); } catch (e) { hud.textContent = 'AUDIO COULD NOT START: ' + e.message; } });
 
@@ -1701,7 +1731,7 @@ const Fluidic = (() => {
       setTimeout(() => { if (node && !held.has(note)) node.port.postMessage({ type: 'off', note }); }, 110);
     }
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button > 0) return;
+      if (e.button > 0 || !touchOn) return;
       const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
       canvas.setPointerCapture(e.pointerId);
       touchLast = { x: px, y: py, t: performance.now(), dx: px, dy: py };
@@ -1863,6 +1893,7 @@ const Fluidic = (() => {
         current = (ui.preset === 'f:Break Drips' ? 'f:Drippiness' : ui.preset) || 'f:' + OPEN_ON;   // renamed preset in older projects
         if (ui.view === 'side' || ui.view === 'top') { vizView = ui.view; viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === vizView)); }
         if (ui.water === 'fluid' || ui.water === 'calm') { vizWater = ui.water; paintWater(); }
+        if (typeof ui.touch === 'boolean') { touchOn = ui.touch; paintTouch(); }
         fillPresets(); widgets.forEach((w) => w.paint());
         if (ui.auto) setAutoState(ui.auto);
         if (ui.holds) setHoldState(ui.holds);
