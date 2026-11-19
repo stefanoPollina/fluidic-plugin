@@ -194,6 +194,7 @@ void FluidicEditor::timerCallback()
     auto* fr = new juce::DynamicObject();
     fr->setProperty ("events", evs); fr->setProperty ("peak", f.peak); fr->setProperty ("cut", f.cut); fr->setProperty ("voices", f.voices);
     if (f.step >= 0) fr->setProperty ("step", (juce::int64) f.step);
+    fr->setProperty ("slosh", f.slosh);   // FLOW: the FLUID visual sways with the sound
     if (FluidicProcessor::isFx)   // FLUIDIC FX: the plugin rolls the dice; the page shows where and what
     {
         auto* au = new juce::DynamicObject();

@@ -23,6 +23,7 @@ struct EngineParams
     FilterType fType = FilterType::off;
     double fCut = 2400, fRes = 0.25, fDrive = 0, fKey = 0.5, fEnv = 0, fA = 0.01, fD = 0.6, fRate = 0.15, fDepth = 0;
     double a = 0.004, d = 0.4, s = 0.7, r = 0.5, level = 0.8;
+    double slosh = 0, sway = 0.5, turb = 0, cascade = 0;   // FLOW: the water as one body (0 = off)
 };
 
 enum class DropKind : uint8_t { note, rain, splash, stream };
@@ -66,17 +67,23 @@ private:
         std::array<float, 64> noise {};
         std::array<double, 8> fst {}; double fenv = 0; int fstage = 0; double fg = 0.1;
         double gl = 0.7071, gr = 0.7071; int pendNote = -1; double pendVel = 0; bool pendOff = false;
+        double tw = 0, cascW = 0, cascSize = 0; int cascN = 0; bool cascOn = false;   // FLOW: turbulence walk, the next cascade drip
     };
 
     void startVoice (Voice& v, int note, double vel);
     double env (Voice& v, double ka, double kd, double kr);
     double osc (Voice& v);
     void drop (const Voice& v, double size, DropKind kind);
+    void flowBirth (Voice& v, double size, double T, double C);
+    void cascadeFrom (Voice& v, double size, double C);
     void renderBlock (float* L, float* R, int n);   // n <= 128, same per-block maths as the worklet
 
     EngineParams p;
     std::array<Voice, maxVoices> voices;
     Rng rng;
-    double sr = 48000, lfoPh = 0, stealK = 0;
+    double sr = 48000, lfoPh = 0, stealK = 0, sloshPh = 0, sl = 0;
+public:
+    double slosh() const { return sl; }   // FLOW: where the water is in its sway, for the window
+private:
 };
 } // namespace fluidic

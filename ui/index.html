@@ -46,14 +46,18 @@
   .rack .drip { grid-column: 2 / 5; }
   .rack .filter { grid-column: 1 / 3; }
   .rack .inpanel { grid-column: 1 / 3; }
-  .rack .rhypanel { grid-column: 3 / 5; }
+  .rack .rhypanel { grid-column: 3 / 4; }
+  .rack .flowpanel { grid-column: 1 / -1; }
+  .fx-mode .rack .flowpanel { grid-column: 4 / 5; }
+  .rack .flowpanel .krow { margin-top: auto; }
   .rack .panel.inpanel { display: grid; grid-template-columns: 230px 1fr auto; grid-template-rows: auto auto auto; column-gap: 14px; row-gap: 6px; align-items: center; }
   .rack .panel.inpanel > h3 { grid-column: 1 / -1; }
   .rack .panel.inpanel > .segs { grid-column: 1; grid-row: 2; }
   .rack .panel.inpanel > .srcnote { grid-column: 1; grid-row: 3; }
   .rack .panel.inpanel > .scope { grid-column: 2; grid-row: 2 / 4; height: 52px; min-height: 0; flex: none; }
   .rack .panel.inpanel > .knobs { grid-column: 3; grid-row: 2 / 4; margin-top: 0 !important; }
-  .rack .panel.rhypanel { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr; column-gap: 14px; align-items: center; }
+  .rack .panel.rhypanel { display: grid; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; row-gap: 6px; align-items: center; }
+  .rack .panel.rhypanel > .knobs { justify-content: space-around; }
   .rack .panel.rhypanel > h3 { grid-column: 1 / -1; }
   .rack .panel.rhypanel > .knobs { margin-top: 0 !important; }
   .panel.bypassed .knobs { opacity: .38; transition: opacity .2s; }
@@ -340,7 +344,12 @@ const Fluidic = (() => {
     { id: 'rhy.rate', name: 'Rate', eng: 'rate', type: 'enum', options: RATES, def: '4', fxOnly: true },
     { id: 'rhy.bpm', name: 'Tempo', label: 'BPM', eng: 'bpm', min: 60, max: 200, step: 1, def: 120, fmt: (v) => Math.round(v) + '', fxOnly: true },
     { id: 'rhy.sense', name: 'Hit sense', label: 'SENSE', eng: 'sense', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)), fxOnly: true },
-    { id: 'in.follow', name: 'Follow', label: 'FOLLOW', eng: 'follow', min: 0, max: 1, def: 1, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)), fxOnly: true }
+    { id: 'in.follow', name: 'Follow', label: 'FOLLOW', eng: 'follow', min: 0, max: 1, def: 1, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)), fxOnly: true },
+    // FLOW: the water as one body. SLOSH rocks it (drips lean in pitch and pan), TURB churns each drip, CASCADE spills drips into smaller ones
+    { id: 'flow.slosh', name: 'Slosh', label: 'SLOSH', eng: 'slosh', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) },
+    { id: 'flow.sway', name: 'Slosh sway rate', label: 'SWAY', eng: 'sway', min: 0.05, max: 6, log: true, def: 0.5, fmt: (v) => (v < 1 ? v.toFixed(2) : v.toFixed(1)) + 'Hz', synthOnly: true },
+    { id: 'flow.turb', name: 'Turbulence', label: 'TURB', eng: 'turb', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) },
+    { id: 'flow.cascade', name: 'Cascade', label: 'CASCADE', eng: 'cascade', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) }
   ];
   // the synth's own sound sources and envelope have no meaning in the effect
   // in FLUIDIC FX these start neutral, so the effect sounds as designed until you reach for them
@@ -407,12 +416,13 @@ const Fluidic = (() => {
     'filt.decay': [0.08, 5], 'filt.key': [0.2, 0.8], 'filt.lfoRate': [0.03, 4], 'filt.lfoDepth': [0, 0.5],
     'amp.a': [0.001, 0.8], 'amp.d': [0.08, 2], 'amp.s': [0.2, 1], 'amp.r': [0.15, 3],
     'fx.delayMix': [0, 0.4], 'fx.delayTime': [0.12, 0.6], 'fx.delayFb': [0.1, 0.6], 'fx.revMix': [0.08, 0.6], 'fx.revSize': [1, 7],
-    'in.drive': [0.7, 1.8], 'in.mix': [0.35, 0.8], 'in.chop': [0, 0.8], 'rhy.sense': [0, 0.6]
+    'in.drive': [0.7, 1.8], 'in.mix': [0.35, 0.8], 'in.chop': [0, 0.8], 'rhy.sense': [0, 0.6],
+    'flow.slosh': [0, 0.6], 'flow.sway': [0.15, 1.5], 'flow.turb': [0, 0.5], 'flow.cascade': [0, 0.6]
   };
   const SAFE_ENUM = { 'rhy.rate': ['2', '4', '4', '8'], 'drip.pattern': ['even', 'rain', 'both', '3d', 'splash', 'stream'], 'filt.type': ['off', 'lp', 'lp', 'lp24', 'lp24', 'hp', 'bp', 'notch'] };
   const DICE_POOL = PARAMS.map((p) => p.id).filter((id) => id !== 'out.level' && id !== 'drip.edge' && id !== 'rhy.bpm' && id !== 'in.follow');   // tempo and FOLLOW stay yours too
   const DROP_SHAPE = ['drip.ping', 'drip.sweep', 'drip.fall', 'drip.bubble', 'drip.wobble', 'drip.chirp', 'drip.size'];
-  const SEC_NAMES = [['exc', 'EXC'], ['drip', 'DRIP'], ['filt', 'FILTER'], ['amp', 'AMP'], ['fx', 'SPACE']];
+  const SEC_NAMES = [['exc', 'EXC'], ['drip', 'DRIP'], ['filt', 'FILTER'], ['amp', 'AMP'], ['fx', 'SPACE'], ['flow', 'FLOW']];
   const DIE_SHAPES = {
     d4: '<polygon points="20,4 37,34 3,34"/><polygon class="in" points="20,4 20,34"/>',
     d6: '<path d="M7 7h26v26H7z"/><path class="in" d="M7 7l6-4h26l-6 4M33 7v26l6-4V3"/>',
@@ -442,7 +452,7 @@ const Fluidic = (() => {
     const FX = opts.mode === 'fx';
     const ACTIVE = new Set(PARAMS.filter((p) => (FX ? !p.synthOnly : !p.fxOnly)).map((p) => p.id));
     const POOL = DICE_POOL.filter((id) => ACTIVE.has(id));
-    const SECS = FX ? [['exc', 'EXC'], ['drip', 'DRIP'], ['filt', 'FILTER'], ['amp', 'AMP'], ['fx', 'SPACE'], ['in', 'INPUT'], ['rhy', 'RHYTHM']] : SEC_NAMES;
+    const SECS = FX ? [['exc', 'EXC'], ['drip', 'DRIP'], ['filt', 'FILTER'], ['amp', 'AMP'], ['fx', 'SPACE'], ['flow', 'FLOW'], ['in', 'INPUT'], ['rhy', 'RHYTHM']] : SEC_NAMES;
     const PRE = FX ? PRESETS_FX : PRESETS, OPEN_ON = FX ? 'Drippiness' : 'Sine Meditation';
     if (FX) root.classList.add('fx-mode');
     const keysActive = opts.keysActive || (() => true);
@@ -513,7 +523,7 @@ const Fluidic = (() => {
           plugin.on('frame', (m) => {
             const now = performance.now();
             (m.events || []).forEach((ev) => spawn(ev, now));
-            viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
+            viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1; viz.slosh = m.slosh || 0;
             if (m.auto) pluginAuto(m.auto, m.rolls);   // FLUIDIC FX: the plugin rolls the dice, even with this window shut
             if (m.step != null) { seqStep(m.step); fluidBeat(m.step); }
           });
@@ -539,7 +549,7 @@ const Fluidic = (() => {
         const m = e.data; if (m.type !== 'frame' || node !== me) return;
         const now = performance.now();
         m.events.forEach((ev) => spawn(ev, now));
-        viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
+        viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1; viz.slosh = m.slosh || 0;
         if (m.step != null) { gridSteps(m.step); seqStep(m.step); fluidBeat(m.step); }
       };
       if (FX) node.port.postMessage({ type: 'seq', seq: seqData() });
@@ -896,8 +906,12 @@ const Fluidic = (() => {
     }
     const pFx = el('section', 'panel'); pFx.dataset.sec = 'fx'; pFx.append(el('h3', '', 'SPACE'));
     krow(pFx, 'DELAY', ['fx.delayMix', 'fx.delayTime', 'fx.delayFb']); const fr2 = krow(pFx, 'VERB · OUT', ['fx.revMix', 'fx.revSize', 'out.level']); fr2.style.marginTop = 'auto';
+    // FLOW: the water as one body
+    const pFlow = el('section', 'panel flowpanel'); pFlow.dataset.sec = 'flow';
+    const flh = el('h3', '', 'FLOW'); flh.append(el('span', '', FX ? 'SWAYS WITH THE BEAT' : 'THE WATER AS ONE BODY')); pFlow.append(flh);
+    krow(pFlow, 'WATER', FX ? ['flow.slosh', 'flow.turb', 'flow.cascade'] : ['flow.slosh', 'flow.sway', 'flow.turb', 'flow.cascade']);
     rack.append(pExc, pDrip, pFilt, pAmp, pFx);
-    if (FX) rack.append(pIn, pRhy);   // the effect's own row: what comes in, and the grid it drops on
+    if (FX) rack.append(pIn, pRhy, pFlow); else rack.append(pFlow);   // the effect's own row: what comes in, and the grid it drops on
     mid.append(rack);
 
     /* ---------------- dice tray ---------------- */
@@ -1606,6 +1620,7 @@ const Fluidic = (() => {
       // tuned to the tempo (one sway per beat) so the beat's pushes build it up, in time
       const bps = FX ? Math.max(0.5, Math.min(4, (values['rhy.bpm'] || 120) / 60)) : 1, w = Math.PI * bps;
       fl.sloshV += -fl.slosh * w * w * dt - fl.sloshV * 1.6 * dt; fl.slosh += fl.sloshV * dt;
+      if (Math.abs(values['flow.slosh'] || 0) > 0.01) fl.sloshV += ((viz.slosh || 0) * 1.4 - fl.slosh) * 10 * dt;   // FLOW's SLOSH: the water sways with the sound
       fl.slosh = Math.max(-1.6, Math.min(1.6, fl.slosh));
       // turbulence: the louder it is, the more the surface churns
       const churn = Math.min(1, viz.peak / 1.6) + Math.min(1, fl.acc) * 0.5; fl.acc *= Math.exp(-dt * 3);

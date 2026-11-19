@@ -4,7 +4,7 @@ New FLUIDIC instances default to Sine Meditation and FLUIDIC FX to Break Drips, 
 import json, sys
 d = json.load(open(sys.argv[1])); out = sys.argv[2]
 sine = d['sine']; fxd = d.get('fxDefault', {})
-UNITS = {'rhy.bpm':'bpm','in.drive':'times','rhy.sense':'pctoff','in.chop':'pctoff','in.follow':'pctoff','drip.cutoff':'Hz','filt.cutoff':'Hz','drip.fall':'ms','filt.attack':'s','filt.decay':'s','amp.a':'s','amp.d':'s','amp.r':'s',
+UNITS = {'rhy.bpm':'bpm','in.drive':'times','rhy.sense':'pctoff','in.chop':'pctoff','in.follow':'pctoff','flow.slosh':'pctoff','flow.turb':'pctoff','flow.cascade':'pctoff','flow.sway':'Hz','drip.cutoff':'Hz','filt.cutoff':'Hz','drip.fall':'ms','filt.attack':'s','filt.decay':'s','amp.a':'s','amp.d':'s','amp.r':'s',
          'fx.delayTime':'ms','fx.revSize':'s','filt.lfoRate':'Hz','drip.sweep':'oct','filt.env':'bi','exc.octave':'oct','drip.density':'x','drip.size':'x'}
 rows = []
 for p in d['params']:

@@ -61,6 +61,10 @@ inline const std::vector<ParamSpec>& paramTable()
     { "rhy.bpm", "Tempo", Kind::integer, 60.0f, 200.0f, 120.0f, false, {}, {}, "bpm", 120.0f, false, true },
     { "rhy.sense", "Hit sense", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, true },
     { "in.follow", "Follow", Kind::number, 0.0f, 1.0f, 1.0f, false, {}, {}, "pctoff", 1.0f, false, true },
+    { "flow.slosh", "Slosh", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, false },
+    { "flow.sway", "Slosh sway rate", Kind::number, 0.05f, 6.0f, 0.5f, true, {}, {}, "Hz", 0.5f, true, false },
+    { "flow.turb", "Turbulence", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, false },
+    { "flow.cascade", "Cascade", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, false },
     };
     return table;
 }

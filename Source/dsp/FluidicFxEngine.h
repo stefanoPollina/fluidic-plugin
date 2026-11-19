@@ -15,6 +15,7 @@ struct FxEngineParams
     double cutoff = 900, res = 0.8, ping = 0.6, sweep = 2.2, fall = 0.08, bubble = 0.55, wobble = 0.3;
     double chirp = 0, width = 0.4, size = 0.5, edge = 0, key = 1;
     double mix = 0.5, chop = 0, drive = 1, follow = 1;   // FOLLOW: drips only while the input has sound
+    double slosh = 0, turb = 0, cascade = 0;             // FLOW: the water as one body (0 = off)
     FilterType fType = FilterType::off;
     double fCut = 2400, fRes = 0.25, fDrive = 0, fEnv = 0, fA = 0.005, fD = 0.25, fRate = 0.15, fDepth = 0;
     double level = 0.8;
@@ -60,10 +61,16 @@ private:
         double ic1 = 0, ic2 = 0, ic1b = 0, ic2b = 0, env = 0, len = 1, dGuard = 1, dgLvl = 0;
         int note = 60; double freq = 261.6, oph = 0; std::array<float, 64> noise {}; double aenv = 0; int astage = 1; double gate = 1;
         bool c3 = false;   // a 3D drip from a sequencer step
+        double fm = 1, tw = 0, w = 0;   // FLOW: pitch push (slosh + turbulence), its random walk, width at birth
     };
-    struct Pending { double at; double size; DropKind kind; };
+    struct Flow { int gen = 0; double up = 0, jit = 0; };   // a CASCADE drip: generation, octaves up, parent's place
+    struct Pending { double at; double size; DropKind kind; int note = -1; bool c3 = false; bool hasFlow = false; Flow flow {}; };
 
-    void spawn (double size, DropKind kind, int note = -1, bool c3 = false);
+    void spawn (double size, DropKind kind, int note = -1, bool c3 = false, const Flow* flow = nullptr);
+    bool inStep = false; double spbNow = 1, sl = 0;
+public:
+    double slosh() const { return sl; }   // FLOW: where the water is in its sway (−1…1 × SLOSH), for the window
+private:
     void onStep (long long k, double spb);
     void renderBlock (const float* inL, const float* inR, float* L, float* R, int n);
 

@@ -51,7 +51,7 @@ public:
     // ---- used by the editor (message thread) ----
     void addUiNote (int note, float velocity, bool on);   // on-screen / computer keyboard
     void requestPanic() { panicRequested = true; }
-    struct Frame { std::vector<fluidic::DropEvent> events; float peak = 0; bool cut = false; int voices = 0; long long step = -1;
+    struct Frame { std::vector<fluidic::DropEvent> events; float peak = 0; bool cut = false; int voices = 0; long long step = -1; float slosh = 0;
                    std::vector<fluidic::RollNotice> rolls; int autoPos = -1; std::string autoMask; };
     Frame takeFrame();                                     // drops since the last call, for the visualiser
     juce::String getUiState() const { const juce::ScopedLock l (uiLock); return uiState; }
@@ -68,6 +68,8 @@ private:
     fluidic::FluidicEngine engine;
     fluidic::FluidicFxEngine fxEngine;
     std::atomic<float> *pRate{}, *pBpm{}, *pSense{}, *pMix{}, *pChop{}, *pDrive{}, *pFollow{};
+    std::atomic<float> *pSlosh{}, *pSway{}, *pTurb{}, *pCasc{};   // FLOW
+    std::atomic<float> sloshNow { 0 };
     std::vector<std::unique_ptr<std::atomic<float>>> fallbacks;   // stand-ins for parameters the other plugin owns
     fluidic::FxBus fx;
     juce::MidiMessageCollector uiNotes;

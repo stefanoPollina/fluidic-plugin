@@ -13,7 +13,8 @@ const DEFAULTS = {
   ping: 0.85, sweep: 2.2, fall: 0.055, bubble: 0.55, wobble: 0.4,
   chirp: 0, width: 0, density: 0.5, size: 0.5, edge: 0,
   fType: 'off', fCut: 2400, fRes: 0.25, fDrive: 0, fKey: 0.5, fEnv: 0, fA: 0.01, fD: 0.6, fRate: 0.15, fDepth: 0,
-  a: 0.004, d: 0.4, s: 0.7, r: 0.5, level: 0.8
+  a: 0.004, d: 0.4, s: 0.7, r: 0.5, level: 0.8,
+  slosh: 0, sway: 0.5, turb: 0, cascade: 0              // FLOW: the water as one body (0 = off)
 };
 // post-drip filter: a zero-delay-feedback state-variable filter per voice, stereo, with an optional second stage for 24 dB
 function svf(st, o, x, g, k) {
@@ -30,6 +31,7 @@ function makeVoice() {
     ic1: 0, ic2: 0, ic1b: 0, ic2b: 0,
     dripT0: 0, dripWait: 0, dripAge: 1e9, dripHit: 0, dripSize: 0.5, dripJit: 0, dripRatio: 0, dripAmp: 0, dripRate: 1,
     dripPh: 0, dripKick: 0, splashN: 0, stW: 0, spW: 0, dripKind: 1, dGuard: 1, dgLvl: 0,
+    tw: 0, cascW: 0, cascN: 0, cascSize: 0, cascOn: 0,   // FLOW: turbulence walk, the next cascade drip
     dripDelay: new Float32Array(32), dripDPos: 0,
     noise: new Float32Array(64), pk: [0, 0, 0],
     fst: new Float64Array(8), fenv: 0, fstage: 0, fg: 0.1,
@@ -44,7 +46,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
     this.voices = Array.from({ length: MAX_VOICES }, makeVoice);
     this.queue = [];
     this.events = [];            // drops fired since the last report
-    this.peak = 0; this.cutFlash = 0; this.lfoPh = 0;
+    this.peak = 0; this.cutFlash = 0; this.lfoPh = 0; this.sloshPh = 0; this.sl = 0;
     this.reportEvery = Math.round(sampleRate / 60);
     this.stealK = 1 - Math.exp(-1 / (0.0006 * sampleRate));
     this.reportCount = 0;
@@ -72,7 +74,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
 
   startVoice(v, note, vel) {
     const wasIdle = !v.active;
-    Object.assign(v, { active: true, id: note, note, vel, gate: true, age: 0, stage: 'attack', dripKick: 1, dripAge: 1e9, dGuard: 1, dgLvl: 0 });
+    Object.assign(v, { active: true, id: note, note, vel, gate: true, age: 0, stage: 'attack', dripKick: 1, dripAge: 1e9, dGuard: 1, dgLvl: 0, tw: 0, cascW: 0, cascN: 0, cascOn: 0 });
     v.ic1 = v.ic2 = v.ic1b = v.ic2b = 0;
     v.fenv = 0; v.fstage = 1; if (wasIdle) v.fst.fill(0);
     if (!Number.isFinite(v.fst[0] + v.fst[1] + v.fst[2] + v.fst[3] + v.fst[4] + v.fst[5] + v.fst[6] + v.fst[7])) v.fst.fill(0);
@@ -88,6 +90,20 @@ class FluidicProcessor extends AudioWorkletProcessor {
       if (v.active && v.id === note && v.gate) { v.gate = false; v.stage = 'release'; }
       else if (v.stage === 'steal' && v.pendNote === note) v.pendOff = true;
     });
+  }
+
+  // FLOW at each drip's birth: TURB knocks its timing and pitch about; CASCADE may queue a smaller, higher drip after it
+  flowBirth(v, size, T, C, sr) {
+    if (T > 0.001) {
+      v.dripWait *= 1 + (Math.random() * 2 - 1) * T * 0.7; if (v.dripWait < 12) v.dripWait = 12;
+      v.dripJit = clamp(v.dripJit + (Math.random() * 2 - 1) * T * 0.8, -1.8, 1.8);
+    }
+    v.cascN = 0; this.cascadeFrom(v, size, C, sr);
+  }
+  cascadeFrom(v, size, C, sr) {
+    if (C > 0.001 && v.cascN < 5 && size >= 0.1 && Math.random() < C * (0.4 + 0.6 * Math.min(1, size))) {
+      v.cascW = Math.max(24, sr * (0.03 + Math.random() * 0.14) * (1.25 - C * 0.6)); v.cascSize = size * (0.5 + Math.random() * 0.25); v.cascN += 1;
+    }
   }
 
   drop(v, size, kind) {          // report a drop to the visualiser (x: 0..1 across the stereo field)
@@ -154,10 +170,18 @@ class FluidicProcessor extends AudioWorkletProcessor {
     const lfoInc = clamp(p.fRate, 0.01, 20) / sr, fDepth = clamp(p.fDepth, 0, 1) * 3, fEnvOct = clamp(p.fEnv, -1, 1) * 5;
     // per-block constants (they only change when a dial moves)
     const ek = (t) => 1 - Math.exp(-1 / (Math.max(0.0008, t) * sr)), ka = ek(p.a), kd = ek(p.d), kr = ek(p.r);
+    // FLOW: SLOSH rocks the whole body at the SWAY rate (pitch and pan lean with it); TURB churns each voice
+    const S = clamp(p.slosh, 0, 1), T = clamp(p.turb, 0, 1), C = clamp(p.cascade, 0, 1);
+    this.sloshPh = wrap01(this.sloshPh + clamp(p.sway, 0.02, 8) * n / sr);
+    const sl = Math.sin(TAU * this.sloshPh) * S; this.sl = sl;
     for (const v of this.voices) {
       if (!v.active) continue;
       v.fc = clamp(p.cutoff * Math.pow(2, (v.note - 60) / 12 * p.key), 30, sr * 0.45);
-      const angle = (v.pan * 0.6 + 1) * 0.25 * Math.PI; v.gl = Math.cos(angle); v.gr = Math.sin(angle);
+      if (S > 0.001 || T > 0.001) {
+        if (T > 0.001) v.tw += ((Math.random() * 2 - 1) - v.tw) * 0.15;
+        v.fc = clamp(v.fc * Math.pow(2, sl * 0.45 + v.tw * T * 0.5), 30, sr * 0.45);
+      }
+      const angle = (clamp(v.pan * 0.6 + sl * 0.75, -1, 1) + 1) * 0.25 * Math.PI; v.gl = Math.cos(angle); v.gr = Math.sin(angle);
     }
 
     for (let i = 0; i < n; i++) {
@@ -175,6 +199,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
           v.dripKick = 0;
           if (dripMode !== 'even') { v.dripWait = 1; v.splashN = 3 + ((Math.random() * 4) | 0); if (storm) { v.stW = 1 + Math.random() * fallT * sr; v.spW = fallT * sr * (0.5 + Math.random() * 2); v.dripKind = 0.55; } }
           if (dripMode !== 'rain') { v.dripT0 = v.age; v.dripJit = (Math.random() * 2 - 1) * 0.3; this.drop(v, 1, 'note'); }
+          this.flowBirth(v, 1, T, C, sr);
         }
         const dAge = v.age - v.dripT0;
         if (storm && v.gate) {
@@ -195,6 +220,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
             v.dripAmp = Math.random() * 2 - 1; v.dripRate = 0.25 + Math.random() * 0.9;
             v.dripKind = kind === 1 ? 0.55 : kind === 2 ? 0.45 : 0.28;
             this.drop(v, v.dripSize, kind === 1 ? 'rain' : kind === 2 ? 'splash' : 'stream');
+            this.flowBirth(v, v.dripSize, T, C, sr);
           }
         }
         if (dripMode !== 'even' && v.gate && !storm) {
@@ -216,6 +242,16 @@ class FluidicProcessor extends AudioWorkletProcessor {
             v.dripJit = Math.random() * 2 - 1; v.dripRatio = Math.random() * 0.7 - 0.22;
             v.dripAmp = Math.random() * 2 - 1; v.dripRate = 0.25 + Math.random() * 0.9;
             this.drop(v, v.dripSize, dripStyle || 'rain');
+            this.flowBirth(v, v.dripSize, T, C, sr);
+          }
+        }
+        if (v.cascW > 0) {   // CASCADE: the queued drip falls, smaller and a little higher, and may spill again
+          v.cascW -= 1;
+          if (v.cascW <= 0) {
+            v.cascW = 0; v.dripAge = 0; v.dripHit = 3; v.dripSize = v.cascSize; v.cascOn = 1;
+            v.dripJit = clamp(v.dripJit + 0.25 + Math.random() * 0.35, -1.8, 1.8);
+            this.drop(v, v.dripSize, 'stream');
+            this.cascadeFrom(v, v.dripSize, C, sr);
           }
         }
         if (v.dripHit > 0) v.dripHit -= 1;
@@ -251,7 +287,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
         const b1 = 1 / (1 + gb * (gb + kb)), b2 = gb * b1, b3 = gb * b2;
         let exc = mix;
         if (dripMode !== 'rain' && dAge < 5 && ping > 0.001) exc += (dAge < 2 ? 0.9 : 0.16) * ping * (storm ? 0.6 : 1);
-        if (dripMode !== 'even' && v.dripHit > 0 && ping > 0.001) exc += (v.dripHit > 1 ? 0.8 : 0.18) * ping * v.dripSize * (storm ? v.dripKind : 1) * v.dGuard;
+        if ((dripMode !== 'even' || v.cascOn) && v.dripHit > 0 && ping > 0.001) exc += (v.dripHit > 1 ? 0.8 : 0.18) * ping * v.dripSize * (storm ? v.dripKind : 1) * v.dGuard;
         const v3 = exc - v.ic2, v1 = a1 * v.ic1 + a2 * v3, v2 = v.ic2 + a2 * v.ic1 + a3 * v3;
         v.ic1 = 2 * v1 - v.ic1; v.ic2 = 2 * v2 - v.ic2;
         if (!Number.isFinite(v.ic1) || v.ic1 > 6 || v.ic1 < -6) { v.ic1 = 0; v.ic2 = 0; }
@@ -310,7 +346,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
     this.peak = Math.max(this.peak * 0.9, peak);
     if (++this.reportCount * n >= this.reportEvery) {
       this.reportCount = 0;
-      this.port.postMessage({ type: 'frame', events: this.events, peak: this.peak, cut: this.cutFlash, voices: this.voices.filter((v) => v.active).length });
+      this.port.postMessage({ type: 'frame', events: this.events, peak: this.peak, cut: this.cutFlash, voices: this.voices.filter((v) => v.active).length, slosh: this.sl });
       this.events = []; this.cutFlash = 0;
     }
     return true;

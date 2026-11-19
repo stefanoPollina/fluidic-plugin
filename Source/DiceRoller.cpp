@@ -19,7 +19,8 @@ const std::map<std::string, std::pair<double, double>>& safeRanges()
         { "filt.decay", { 0.08, 5 } }, { "filt.key", { 0.2, 0.8 } }, { "filt.lfoRate", { 0.03, 4 } }, { "filt.lfoDepth", { 0, 0.5 } },
         { "amp.a", { 0.001, 0.8 } }, { "amp.d", { 0.08, 2 } }, { "amp.s", { 0.2, 1 } }, { "amp.r", { 0.15, 3 } },
         { "fx.delayMix", { 0, 0.4 } }, { "fx.delayTime", { 0.12, 0.6 } }, { "fx.delayFb", { 0.1, 0.6 } }, { "fx.revMix", { 0.08, 0.6 } }, { "fx.revSize", { 1, 7 } },
-        { "in.drive", { 0.7, 1.8 } }, { "in.mix", { 0.35, 0.8 } }, { "in.chop", { 0, 0.8 } }, { "rhy.sense", { 0, 0.6 } } };
+        { "in.drive", { 0.7, 1.8 } }, { "in.mix", { 0.35, 0.8 } }, { "in.chop", { 0, 0.8 } }, { "rhy.sense", { 0, 0.6 } },
+        { "flow.slosh", { 0, 0.6 } }, { "flow.sway", { 0.15, 1.5 } }, { "flow.turb", { 0, 0.5 } }, { "flow.cascade", { 0, 0.6 } } };
     return m;
 }
 // SAFE_ENUM, as choice indices (repeats weight the pick)

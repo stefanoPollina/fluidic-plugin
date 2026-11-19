@@ -57,8 +57,11 @@ void FluidicFxEngine::setGridPosition (double stepsFromStart)
     }
 }
 
-void FluidicFxEngine::spawn (double size, DropKind kind, int note, bool c3)
+void FluidicFxEngine::spawn (double size, DropKind kind, int note, bool c3, const Flow* flow)
 {
+    const double T = clampd (p.turb, 0, 1), C = clampd (p.cascade, 0, 1), raw = size;
+    // TURB: drips on the grid slip off it a little (pushed later, up to ~half a step)
+    if (inStep && T > 0.001) { Pending q { std::max (1.0, (double) std::llround (rng.next() * T * spbNow * 0.45)), size, kind }; q.note = note; q.c3 = c3; pending.push_back (q); return; }
     Drop* d = nullptr;
     for (auto& x : drops) if (! x.active) { d = &x; break; }
     if (d == nullptr) { d = &drops[0]; for (size_t i = 1; i < drops.size(); ++i) if (! (d->env < drops[i].env)) d = &drops[i]; }
@@ -71,6 +74,9 @@ void FluidicFxEngine::spawn (double size, DropKind kind, int note, bool c3)
     d->fc = clampd (p.cutoff * std::pow (2.0, (n - 60) / 12.0 * clampd (p.key, 0, 1)), 30, sr * 0.45);
     double width = clampd (p.width, 0, 1); if ((p.pattern == Pattern::threeD || c3) && width < 0.8) width = 0.8;
     d->c3 = c3;
+    if (flow != nullptr) { d->jit = clampd (flow->jit + (rng.next() * 2 - 1) * 0.3, -1, 1); d->fc = clampd (d->fc * std::pow (2.0, flow->up), 30, sr * 0.45); }   // a cascade: higher, near its parent
+    if (T > 0.001) { const double a = rng.next(); d->fc = clampd (d->fc * std::pow (2.0, (a * 2 - 1) * T * 0.5), 30, sr * 0.45); const double b = rng.next(); d->jit = clampd (d->jit + (b * 2 - 1) * T * 0.6, -1, 1); }
+    d->w = width; d->tw = 0; d->fm = 1;
     const double angle = (clampd (d->jit * width, -1, 1) + 1) * 0.25 * PI; d->gl = std::cos (angle); d->gr = std::sin (angle);
     d->len = clampd (p.fall, 0.02, 0.45) * sr * (1.5 + size * 4);
     // tone layer: this drip's own oscillator, at the drip's note
@@ -81,6 +87,16 @@ void FluidicFxEngine::spawn (double size, DropKind kind, int note, bool c3)
     lastNote = n;
     fenv = 0; fstage = 1;
     if (events.size() < 64) events.push_back ({ (float) clampd (0.5 + d->jit * width * 0.45, 0.03, 0.97), (float) size, kind, n, (float) p.sweep, (float) p.chirp });
+    // CASCADE: a drip can spill into a smaller, higher one, which can spill again
+    const int gen = flow != nullptr ? flow->gen : 0;
+    if (C > 0.001 && gen < 5 && raw >= 0.1 && rng.next() < C * (0.4 + 0.6 * std::min (1.0, raw)))
+    {
+        const double at = (double) std::llround (std::max (24.0, sr * (0.03 + rng.next() * 0.14) * (1.25 - C * 0.6)));
+        const double cs = raw * (0.5 + rng.next() * 0.25);
+        const double up = (flow != nullptr ? flow->up : 0) + 0.15 + rng.next() * 0.3;
+        Pending q { at, cs, DropKind::stream }; q.note = n; q.hasFlow = true; q.flow = { gen + 1, up, d->jit };
+        pending.push_back (q);
+    }
 }
 
 void FluidicFxEngine::onStep (long long k, double spb)
@@ -175,6 +191,21 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
     const double oscLevel = clampd (p.oscLevel, 0, 1), hold = clampd (p.hold, 0, 1); const Wave wave = p.wave;
     const double keyOct = clampd (p.fKey, 0, 1) * ((! held.empty() ? held.back() : lastNote) - 60) / 12.0;
     double blockPeak = 0;
+    // FLOW: SLOSH rocks the whole body, one sway per beat (pitch and pan lean with it); TURB churns each drip
+    const double S = clampd (p.slosh, 0, 1), T = clampd (p.turb, 0, 1);
+    spbNow = spb;
+    sl = std::sin (PI * (step + clock / spb) / rate) * S;
+    for (auto& d : drops)
+    {
+        if (! d.active) continue;
+        if (S > 0.001 || T > 0.001)
+        {
+            if (T > 0.001) d.tw += ((rng.next() * 2 - 1) - d.tw) * 0.15;
+            d.fm = std::pow (2.0, sl * 0.45 + d.tw * T * 0.5);
+            if (S > 0.001) { const double angle = (clampd (d.jit * d.w + sl * 0.75, -1, 1) + 1) * 0.25 * PI; d.gl = std::cos (angle); d.gr = std::sin (angle); }
+        }
+        else d.fm = 1;
+    }
 
     for (int i = 0; i < n; ++i)
     {
@@ -182,12 +213,12 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
         if (gridRun)
         {
             clock += 1;
-            if (clock >= spb) { clock -= spb; step += 1; onStep (step, spb); }
+            if (clock >= spb) { clock -= spb; step += 1; inStep = true; onStep (step, spb); inStep = false; }
         }
         for (int j = (int) pending.size() - 1; j >= 0; --j)
         {
             auto& q = pending[(size_t) j];
-            if (--q.at <= 0) { const Pending pq = q; pending.erase (pending.begin() + j); spawn (pq.size, pq.kind); }
+            if (--q.at <= 0) { const Pending pq = q; pending.erase (pending.begin() + j); spawn (pq.size, pq.kind, pq.note, pq.c3, pq.hasFlow ? &pq.flow : nullptr); }
         }
         const double a = std::abs (mono);
         fast += (a - fast) * (a > fast ? kFastA : kFastR);
@@ -215,7 +246,7 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
             const double ch = d.c3 ? 1 : chirp;
             if (ch > 0) fall *= std::pow (fall, ch);
             const double scatter = d.jit * (0.25 + std::abs (sweep) * 0.12);
-            const double swept = d.fc * std::pow (2.0, sweep * fall + scatter * (0.45 + 0.55 * fall));
+            const double swept = d.fc * d.fm * std::pow (2.0, sweep * fall + scatter * (0.45 + 0.55 * fall));
             const double wobble = std::sin (TAU * d.ph) * wob * (0.1 + 0.32 * d.size);
             const double fc = clampd (swept * (1 + wobble), 32, sr * 0.45);
             d.ph = wrap01 (d.ph + fc * (0.42 + dripRes * 0.5) * d.rate / sr);

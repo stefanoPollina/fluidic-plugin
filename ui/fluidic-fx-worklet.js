@@ -16,6 +16,7 @@ const DEFAULTS = {
   cutoff: 900, res: 0.8, ping: 0.6, sweep: 2.2, fall: 0.08, bubble: 0.55, wobble: 0.3,
   chirp: 0, width: 0.4, size: 0.5, edge: 0, key: 1,
   mix: 0.5, chop: 0, drive: 1, follow: 1,
+  slosh: 0, turb: 0, cascade: 0,                          // FLOW: the water as one body (0 = off)
   fType: 'off', fCut: 2400, fRes: 0.25, fDrive: 0, fEnv: 0, fA: 0.005, fD: 0.25, fRate: 0.15, fDepth: 0,
   level: 0.8,
   wave: 'saw', oscLevel: 0, hold: 0, octave: 0,          // EXCITER tone layer (LEVEL 0 = the input only)
@@ -29,7 +30,7 @@ function svf(st, o, x, g, k) {
 }
 const makeDrop = () => ({ active: false, age: 0, size: 0.5, jit: 0, ratio: 0, amp: 0, rate: 1, fc: 900, ph: 0, gl: 0.707, gr: 0.707,
   ic1: 0, ic2: 0, ic1b: 0, ic2b: 0, env: 0, len: 1, dGuard: 1, dgLvl: 0,
-  note: 60, freq: 261.6, oph: 0, noise: new Float32Array(64), aenv: 0, astage: 1, gate: 1 });
+  note: 60, freq: 261.6, oph: 0, noise: new Float32Array(64), aenv: 0, astage: 1, gate: 1, fm: 1, tw: 0, w: 0 });
 
 class FluidicFxProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -57,8 +58,10 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
   }
 
   // a new drip; its pitch follows the held key (if any) else the PITCH dial
-  spawn(size, kind, note, c3) {   // c3: this drip is a 3D one (a sequencer step set to 3D)
-    const p = this.p, sr = sampleRate;
+  spawn(size, kind, note, c3, flow) {   // c3: a 3D drip (sequencer step); flow: a CASCADE drip { gen, up, jit }
+    const p = this.p, sr = sampleRate, T = clamp(p.turb, 0, 1), C = clamp(p.cascade, 0, 1), raw = size;
+    // TURB: drips on the grid slip off it a little (pushed later, up to ~half a step)
+    if (this.inStep && T > 0.001) { this.pending.push({ at: Math.max(1, Math.round(Math.random() * T * this.spbNow * 0.45)), size, kind, note, c3 }); return; }
     let d = this.drops.find((x) => !x.active);
     if (!d) d = this.drops.reduce((a, b) => (a.env < b.env ? a : b));
     const n = note != null ? note : this.held.length ? this.held[this.held.length - 1] : 60;
@@ -69,6 +72,9 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     d.fc = clamp(p.cutoff * Math.pow(2, (n - 60) / 12 * clamp(p.key, 0, 1)), 30, sr * 0.45);
     let width = clamp(p.width, 0, 1); if ((p.pattern === '3d' || c3) && width < 0.8) width = 0.8;
     d.c3 = c3 ? 1 : 0;
+    if (flow) { d.jit = clamp(flow.jit + (Math.random() * 2 - 1) * 0.3, -1, 1); d.fc = clamp(d.fc * Math.pow(2, flow.up), 30, sr * 0.45); }   // a cascade: higher, near its parent
+    if (T > 0.001) { d.fc = clamp(d.fc * Math.pow(2, (Math.random() * 2 - 1) * T * 0.5), 30, sr * 0.45); d.jit = clamp(d.jit + (Math.random() * 2 - 1) * T * 0.6, -1, 1); }
+    d.w = width; d.tw = 0; d.fm = 1;
     const angle = (clamp(d.jit * width, -1, 1) + 1) * 0.25 * Math.PI; d.gl = Math.cos(angle); d.gr = Math.sin(angle);
     d.len = clamp(p.fall, 0.02, 0.45) * sr * (1.5 + size * 4);
     // tone layer: this drip's own oscillator, at the drip's note
@@ -79,6 +85,12 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     this.lastNote = n;
     this.fenv = 0; this.fstage = 1;                       // the filter envelope follows the drips
     if (this.events.length < 64) this.events.push({ x: clamp(0.5 + d.jit * width * 0.45, 0.03, 0.97), size, kind, note: n, sweep: p.sweep, chirp: p.chirp });
+    // CASCADE: a drip can spill into a smaller, higher one, which can spill again
+    const gen = flow ? flow.gen : 0;
+    if (C > 0.001 && gen < 5 && raw >= 0.1 && Math.random() < C * (0.4 + 0.6 * Math.min(1, raw))) {
+      const at = Math.round(Math.max(24, sr * (0.03 + Math.random() * 0.14) * (1.25 - C * 0.6))), cs = raw * (0.5 + Math.random() * 0.25), up = (flow ? flow.up : 0) + 0.15 + Math.random() * 0.3;
+      this.pending.push({ at, size: cs, kind: 'stream', note: n, flow: { gen: gen + 1, up, jit: d.jit } });
+    }
   }
 
   // one grid step: the pattern decides what falls
@@ -153,13 +165,25 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     const oscLevel = clamp(p.oscLevel, 0, 1), hold = clamp(p.hold, 0, 1), wave = p.wave;
     const keyOct = clamp(p.fKey, 0, 1) * ((this.held.length ? this.held[this.held.length - 1] : this.lastNote) - 60) / 12;
     let peak = 0;
+    // FLOW: SLOSH rocks the whole body, one sway per beat (pitch and pan lean with it); TURB churns each drip
+    const S = clamp(p.slosh, 0, 1), T = clamp(p.turb, 0, 1);
+    this.spbNow = spb;
+    const sl = Math.sin(Math.PI * (this.step + this.clock / spb) / rate) * S; this.sl = sl;
+    for (const d of this.drops) {
+      if (!d.active) continue;
+      if (S > 0.001 || T > 0.001) {
+        if (T > 0.001) d.tw += ((Math.random() * 2 - 1) - d.tw) * 0.15;
+        d.fm = Math.pow(2, sl * 0.45 + d.tw * T * 0.5);
+        if (S > 0.001) { const angle = (clamp(d.jit * d.w + sl * 0.75, -1, 1) + 1) * 0.25 * Math.PI; d.gl = Math.cos(angle); d.gr = Math.sin(angle); }
+      } else d.fm = 1;
+    }
 
     for (let i = 0; i < n; i++) {
       const xl = inL ? inL[i] : 0, xr = inR ? inR[i] : 0, mono = 0.5 * (xl + xr);
       // tempo grid
       this.clock += 1;
-      if (this.clock >= spb) { this.clock -= spb; this.step += 1; this.onStep(this.step, spb); }
-      for (let j = this.pending.length - 1; j >= 0; j--) { const q = this.pending[j]; if (--q.at <= 0) { this.spawn(q.size, q.kind); this.pending.splice(j, 1); } }
+      if (this.clock >= spb) { this.clock -= spb; this.step += 1; this.inStep = true; this.onStep(this.step, spb); this.inStep = false; }
+      for (let j = this.pending.length - 1; j >= 0; j--) { const q = this.pending[j]; if (--q.at <= 0) { this.pending.splice(j, 1); this.spawn(q.size, q.kind, q.note, q.c3, q.flow); } }
       // the input's own hits
       const a = Math.abs(mono);
       this.fast += (a - this.fast) * (a > this.fast ? kFastA : kFastR);
@@ -188,7 +212,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
         const ch = d.c3 ? 1 : chirp;
         if (ch > 0) fall *= Math.pow(fall, ch);
         const scatter = d.jit * (0.25 + Math.abs(sweep) * 0.12);
-        const swept = d.fc * Math.pow(2, sweep * fall + scatter * (0.45 + 0.55 * fall));
+        const swept = d.fc * d.fm * Math.pow(2, sweep * fall + scatter * (0.45 + 0.55 * fall));
         const wobble = Math.sin(TAU * d.ph) * wob * (0.1 + 0.32 * d.size);
         const fc = clamp(swept * (1 + wobble), 32, sr * 0.45);
         d.ph = wrap01(d.ph + fc * (0.42 + dripRes * 0.5) * d.rate / sr);
@@ -252,7 +276,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     this.peak = Math.max(this.peak * 0.9, peak);
     if (++this.reportCount * n >= this.reportEvery) {
       this.reportCount = 0;
-      this.port.postMessage({ type: 'frame', events: this.events, peak: this.peak, cut: this.cutFlash, voices: this.drops.filter((d) => d.active).length, step: this.step });
+      this.port.postMessage({ type: 'frame', events: this.events, peak: this.peak, cut: this.cutFlash, voices: this.drops.filter((d) => d.active).length, step: this.step, slosh: this.sl });
       this.events = []; this.cutFlash = 0;
     }
     return true;

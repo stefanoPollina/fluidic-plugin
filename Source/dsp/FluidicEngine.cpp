@@ -63,7 +63,7 @@ void FluidicEngine::startVoice (Voice& v, int note, double vel)
 {
     const bool wasIdle = ! v.active;
     v.active = true; v.id = note; v.note = note; v.vel = vel; v.gate = true; v.age = 0; v.stage = Stage::attack;
-    v.dripKick = true; v.dripAge = 1e9; v.dGuard = 1; v.dgLvl = 0;
+    v.dripKick = true; v.dripAge = 1e9; v.dGuard = 1; v.dgLvl = 0; v.tw = 0; v.cascW = 0; v.cascN = 0; v.cascOn = false;
     v.ic1 = v.ic2 = v.ic1b = v.ic2b = 0;
     v.fenv = 0; v.fstage = 1; if (wasIdle) v.fst.fill (0);
     double s = 0; for (double x : v.fst) s += x;
@@ -81,6 +81,26 @@ void FluidicEngine::noteOff (int note)
     {
         if (v.active && v.id == note && v.gate) { v.gate = false; v.stage = Stage::release; }
         else if (v.stage == Stage::steal && v.pendNote == note) v.pendOff = true;
+    }
+}
+
+// FLOW at each drip's birth: TURB knocks its timing and pitch about; CASCADE may queue a smaller, higher drip after it
+void FluidicEngine::flowBirth (Voice& v, double size, double T, double C)
+{
+    if (T > 0.001)
+    {
+        v.dripWait *= 1 + (rng.next() * 2 - 1) * T * 0.7; if (v.dripWait < 12) v.dripWait = 12;
+        v.dripJit = clampd (v.dripJit + (rng.next() * 2 - 1) * T * 0.8, -1.8, 1.8);
+    }
+    v.cascN = 0; cascadeFrom (v, size, C);
+}
+
+void FluidicEngine::cascadeFrom (Voice& v, double size, double C)
+{
+    if (C > 0.001 && v.cascN < 5 && size >= 0.1 && rng.next() < C * (0.4 + 0.6 * std::min (1.0, size)))
+    {
+        v.cascW = std::max (24.0, sr * (0.03 + rng.next() * 0.14) * (1.25 - C * 0.6));
+        v.cascSize = size * (0.5 + rng.next() * 0.25); v.cascN += 1;
     }
 }
 
@@ -170,11 +190,20 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
     const double lfoInc = clampd (p.fRate, 0.01, 20) / sr, fDepth = clampd (p.fDepth, 0, 1) * 3, fEnvOct = clampd (p.fEnv, -1, 1) * 5;
     auto ek = [this] (double t) { return 1 - std::exp (-1 / (std::max (0.0008, t) * sr)); };
     const double ka = ek (p.a), kd = ek (p.d), kr = ek (p.r);
+    // FLOW: SLOSH rocks the whole body at the SWAY rate (pitch and pan lean with it); TURB churns each voice
+    const double S = clampd (p.slosh, 0, 1), T = clampd (p.turb, 0, 1), C = clampd (p.cascade, 0, 1);
+    sloshPh = wrap01 (sloshPh + clampd (p.sway, 0.02, 8) * n / sr);
+    sl = std::sin (TAU * sloshPh) * S;
     for (auto& v : voices)
     {
         if (! v.active) continue;
         v.fc = clampd (p.cutoff * std::pow (2.0, (v.note - 60) / 12.0 * p.key), 30, sr * 0.45);
-        const double angle = (v.pan * 0.6 + 1) * 0.25 * PI; v.gl = std::cos (angle); v.gr = std::sin (angle);
+        if (S > 0.001 || T > 0.001)
+        {
+            if (T > 0.001) v.tw += ((rng.next() * 2 - 1) - v.tw) * 0.15;
+            v.fc = clampd (v.fc * std::pow (2.0, sl * 0.45 + v.tw * T * 0.5), 30, sr * 0.45);
+        }
+        const double angle = (clampd (v.pan * 0.6 + sl * 0.75, -1, 1) + 1) * 0.25 * PI; v.gl = std::cos (angle); v.gr = std::sin (angle);
     }
 
     for (int i = 0; i < n; ++i)
@@ -199,6 +228,7 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
                     if (storm) { v.stW = 1 + rng.next() * fallT * sr; v.spW = fallT * sr * (0.5 + rng.next() * 2); v.dripKind = 0.55; }
                 }
                 if (dripMode != mRain) { v.dripT0 = v.age; v.dripJit = (rng.next() * 2 - 1) * 0.3; drop (v, 1, DropKind::note); }
+                flowBirth (v, 1, T, C);
             }
             const double dAge = v.age - v.dripT0;
             if (storm && v.gate)
@@ -223,6 +253,7 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
                     v.dripAmp = rng.next() * 2 - 1; v.dripRate = 0.25 + rng.next() * 0.9;
                     v.dripKind = kind == 1 ? 0.55 : kind == 2 ? 0.45 : 0.28;
                     drop (v, v.dripSize, kind == 1 ? DropKind::rain : kind == 2 ? DropKind::splash : DropKind::stream);
+                    flowBirth (v, v.dripSize, T, C);
                 }
             }
             if (dripMode != mEven && v.gate && ! storm)
@@ -247,6 +278,18 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
                     v.dripJit = rng.next() * 2 - 1; v.dripRatio = rng.next() * 0.7 - 0.22;
                     v.dripAmp = rng.next() * 2 - 1; v.dripRate = 0.25 + rng.next() * 0.9;
                     drop (v, v.dripSize, dripStyle == sStream ? DropKind::stream : dripStyle == sSplash ? DropKind::splash : DropKind::rain);
+                    flowBirth (v, v.dripSize, T, C);
+                }
+            }
+            if (v.cascW > 0)   // CASCADE: the queued drip falls, smaller and a little higher, and may spill again
+            {
+                v.cascW -= 1;
+                if (v.cascW <= 0)
+                {
+                    v.cascW = 0; v.dripAge = 0; v.dripHit = 3; v.dripSize = v.cascSize; v.cascOn = true;
+                    v.dripJit = clampd (v.dripJit + 0.25 + rng.next() * 0.35, -1.8, 1.8);
+                    drop (v, v.dripSize, DropKind::stream);
+                    cascadeFrom (v, v.dripSize, C);
                 }
             }
             if (v.dripHit > 0) v.dripHit -= 1;
@@ -287,7 +330,7 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
             const double b1 = 1 / (1 + gb * (gb + kb)), b2 = gb * b1, b3 = gb * b2;
             double exc = mix;
             if (dripMode != mRain && dAge < 5 && ping > 0.001) exc += (dAge < 2 ? 0.9 : 0.16) * ping * (storm ? 0.6 : 1);
-            if (dripMode != mEven && v.dripHit > 0 && ping > 0.001) exc += (v.dripHit > 1 ? 0.8 : 0.18) * ping * v.dripSize * (storm ? v.dripKind : 1) * v.dGuard;
+            if ((dripMode != mEven || v.cascOn) && v.dripHit > 0 && ping > 0.001) exc += (v.dripHit > 1 ? 0.8 : 0.18) * ping * v.dripSize * (storm ? v.dripKind : 1) * v.dGuard;
             const double v3 = exc - v.ic2, v1 = a1 * v.ic1 + a2 * v3, v2 = v.ic2 + a2 * v.ic1 + a3 * v3;
             v.ic1 = 2 * v1 - v.ic1; v.ic2 = 2 * v2 - v.ic2;
             if (! finite (v.ic1) || v.ic1 > 6 || v.ic1 < -6) { v.ic1 = 0; v.ic2 = 0; }

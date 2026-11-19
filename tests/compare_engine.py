@@ -27,8 +27,14 @@ CASES = {
  'storm edge off': {'pattern':'storm','edge':0,'res':.97,'ping':1,'bubble':1},
  'octave/key/env': {'octave':-1,'key':.9,'fType':'lp','fEnv':-.8,'fA':.05,'fD':.3,'s':.2,'d':.1},
  '16 notes: voice reuse': {'_notes':[40,43,47,50,52,55,59,62,64,67,71,74,76,79,83,86],'pattern':'rain','r':2},
+ 'FLOW slosh (sway 2 Hz)': {'pattern':'both','slosh':1,'sway':2},
+ 'FLOW turbulence rain': {'pattern':'rain','turb':.8},
+ 'FLOW cascade even': {'pattern':'even','cascade':.9},
+ 'FLOW cascade storm + turb': {'pattern':'storm','cascade':.7,'turb':.5,'slosh':.4},
 }
 NOTES=[48,55,62,67]
+import os as _os
+if _os.environ.get('ONLY'): CASES = {k:v for k,v in CASES.items() if _os.environ['ONLY'] in k}
 async def main():
   fails=0
   async with async_playwright() as p:

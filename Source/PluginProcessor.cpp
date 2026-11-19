@@ -79,6 +79,7 @@ FluidicProcessor::FluidicProcessor()
     pA = P ("amp.a"); pD = P ("amp.d"); pS = P ("amp.s"); pR = P ("amp.r"); pOut = P ("out.level");
     pDMix = P ("fx.delayMix"); pDTime = P ("fx.delayTime"); pDFb = P ("fx.delayFb"); pRMix = P ("fx.revMix"); rawRevSize = P ("fx.revSize");
     pRate = P ("rhy.rate"); pBpm = P ("rhy.bpm"); pSense = P ("rhy.sense"); pMix = P ("in.mix"); pChop = P ("in.chop"); pDrive = P ("in.drive"); pFollow = P ("in.follow");
+    pSlosh = P ("flow.slosh"); pSway = P ("flow.sway"); pTurb = P ("flow.turb"); pCasc = P ("flow.cascade");
     uiState = isFx ? R"({"preset":"f:Drippiness"})" : R"({"preset":"f:Sine Meditation"})";
     engine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
     fxEngine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
@@ -209,6 +210,7 @@ void FluidicProcessor::readParams()
     p.fCut = v (pFCut); p.fRes = v (pFRes); p.fDrive = v (pFDrive); p.fEnv = v (pFEnv); p.fA = v (pFA); p.fD = v (pFD);
     p.fKey = v (pFKey); p.fRate = v (pFRate); p.fDepth = v (pFDepth);
     p.a = v (pA); p.d = v (pD); p.s = v (pS); p.r = v (pR); p.level = v (pOut);
+    p.slosh = v (pSlosh); p.sway = v (pSway); p.turb = v (pTurb); p.cascade = v (pCasc);   // FLOW
     if (isFx)
     {
         auto& q = fxEngine.params();
@@ -221,6 +223,7 @@ void FluidicProcessor::readParams()
         q.fRate = p.fRate; q.fDepth = p.fDepth; q.level = p.level;
         q.wave = p.wave; q.oscLevel = p.oscLevel; q.hold = p.hold; q.octave = p.octave;   // tone layer
         q.a = p.a; q.d = p.d; q.s = p.s; q.r = p.r; q.fKey = p.fKey;                     // AMP per drip, filter KEY
+        q.slosh = p.slosh; q.turb = p.turb; q.cascade = p.cascade;                      // FLOW (sways with the beat)
     }
     FxParams f;
     f.delayMix = v (pDMix); f.delayTime = v (pDTime); f.delayFb = v (pDFb); f.revMix = v (pRMix); f.revSize = v (rawRevSize);
@@ -275,6 +278,7 @@ void FluidicProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         if (fxEngine.cutFlash) { cut.store (true); fxEngine.cutFlash = false; }
         voices.store (fxEngine.activeDrops());
         gridStep.store (fxEngine.gridStep());
+        sloshNow.store ((float) fxEngine.slosh());
         return;
     }
     int pos = 0;
@@ -301,6 +305,7 @@ void FluidicProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
     peak.store ((float) engine.peak);
     if (engine.cutFlash) { cut.store (true); engine.cutFlash = false; }
     voices.store (engine.activeVoices());
+    sloshNow.store ((float) engine.slosh());
 }
 
 FluidicProcessor::Frame FluidicProcessor::takeFrame()
@@ -309,7 +314,7 @@ FluidicProcessor::Frame FluidicProcessor::takeFrame()
     const auto r = dropFifo.read (dropFifo.getNumReady());
     for (int i = 0; i < r.blockSize1; ++i) f.events.push_back (dropBuf[(size_t) (r.startIndex1 + i)]);
     for (int i = 0; i < r.blockSize2; ++i) f.events.push_back (dropBuf[(size_t) (r.startIndex2 + i)]);
-    f.peak = peak.load(); f.cut = cut.exchange (false); f.voices = voices.load(); f.step = gridStep.load();
+    f.peak = peak.load(); f.cut = cut.exchange (false); f.voices = voices.load(); f.step = gridStep.load(); f.slosh = sloshNow.load();
     if (dice != nullptr)   // same thread as the auto-roll (message thread)
     {
         f.rolls = std::move (rollNotices); rollNotices.clear();
