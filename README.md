@@ -25,6 +25,12 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
 
   **HOLD GRID** keeps the 1/4–1/32 grid and **HOLD PATTERN** keeps the drip style while the rest rolls. In a DAW the dice roll inside the plugin itself, so auto-roll keeps going with the plugin window closed. Rolls happen in real time: to get them into an export, record them as automation first (arm automation and play), or bounce the track in real time.
 
+- **STEP SEQUENCER** (FLUIDIC FX, under AUTO ROLL): program where the drips fall. Switch on **SEQUENCER** (an empty bar starts on the beats).
+  - **Click a step** to light it with the current **BRUSH**: DIAL (follows the PATTERN dial) or a pattern of its own (EVEN, RAIN, BOTH, 3D, SPLASH, STREAM, STORM). Click a lit step with the same brush to clear it; with another brush to repaint it.
+  - **Drag a step up or down** to set its accent: how hard that drip hits.
+  - **Right-click a step** to cycle its pattern.
+  - Lit steps always drip; unlit steps stay dry. The grid (1/4 … 1/32) sets how many steps play (up to 32). CLEAR, BEATS and ACCENTS 75 help you start over.
+  - Saved with the project. FOLLOW still applies, so a silent track stays silent.
 - **Hold anything from the dice** (both plugins, manual and auto rolls). Everything you hold saves with the project.
   - **A whole panel:** its **HOLD** button.
   - **A row or group:** click its side caption: TONE, PATTERN, PITCH, DROP, SPREAD, SHAPE (filter type), CUT · RES, ENV, KEY · LFO, RISE, HOLD · FADE, DELAY, VERB · OUT.

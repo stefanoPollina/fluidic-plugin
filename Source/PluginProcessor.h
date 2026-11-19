@@ -92,6 +92,8 @@ private:
     // FLUIDIC FX: the dice live here, so AUTO ROLL keeps rolling with the window closed (message thread only)
     std::unique_ptr<fluidic::DiceRoller> dice;
     fluidic::AutoConfig pendingAuto; bool autoDirty = false;   // guarded by uiLock
+    // STEP SEQUENCER: from the window's saved state to the audio thread
+    fluidic::Sequence pendingSeq; std::atomic<bool> seqDirty { false }; juce::SpinLock seqLock;
     std::vector<fluidic::RollNotice> rollNotices;              // for the window's badge, until it collects them
     bool prepared = false;
 

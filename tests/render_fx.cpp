@@ -27,6 +27,17 @@ int main (int argc, char** argv)
         else if (k == "pattern") { std::string v; ss >> v; p.pattern = P.at (v); }
         else if (k == "fType") { std::string v; ss >> v; p.fType = F.at (v); }
         else if (k == "wave") { std::string v; ss >> v; p.wave = W.at (v); }
+        else if (k == "seq")   // on:pattern:accent,…  ('-' = the PATTERN dial)
+        {
+            std::string v; ss >> v; Sequence q; q.on = true; std::istringstream st (v); std::string tok; size_t i = 0;
+            while (std::getline (st, tok, ',') && i < 32)
+            {
+                auto a = tok.find (':'), b = tok.rfind (':');
+                auto& s = q.steps[i++]; s.on = tok.substr (0, a) == "1";
+                const auto pk = tok.substr (a + 1, b - a - 1); s.pat = pk == "-" ? -1 : (int) P.at (pk); s.acc = std::stod (tok.substr (b + 1));
+            }
+            e.setSequence (q);
+        }
         else if (D.count (k)) ss >> *D[k];
         else { std::fprintf (stderr, "unknown key %s\n", k.c_str()); return 2; }
     }

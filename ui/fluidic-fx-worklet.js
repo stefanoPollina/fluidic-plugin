@@ -42,12 +42,14 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     this.fst = new Float64Array(8); this.fenv = 0; this.fstage = 0; this.fg = 0.1;
     this.events = []; this.peak = 0; this.cutFlash = 0;
     this.reportEvery = Math.round(sampleRate / 60); this.reportCount = 0;
+    this.seq = null;   // STEP SEQUENCER: { on, steps: [{ on, pat ('' = the PATTERN dial), acc 0–1 }] × 32 }
     this.port.onmessage = (e) => this.onMessage(e.data);
   }
 
   onMessage(m) {
     if (!m) return;
     if (m.type === 'params') Object.assign(this.p, m.params);
+    else if (m.type === 'seq') this.seq = m.seq;
     else if (m.type === 'sync') { this.clock = 0; this.step = 0; this.pending.length = 0; }   // loop restarted: realign the grid
     else if (m.type === 'on') { this.held = this.held.filter((n) => n !== m.note); this.held.push(m.note); this.spawn(0.95, 'note', m.note); }
     else if (m.type === 'off') this.held = this.held.filter((n) => n !== m.note);
@@ -55,7 +57,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
   }
 
   // a new drip; its pitch follows the held key (if any) else the PITCH dial
-  spawn(size, kind, note) {
+  spawn(size, kind, note, c3) {   // c3: this drip is a 3D one (a sequencer step set to 3D)
     const p = this.p, sr = sampleRate;
     let d = this.drops.find((x) => !x.active);
     if (!d) d = this.drops.reduce((a, b) => (a.env < b.env ? a : b));
@@ -65,7 +67,8 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     Object.assign(d, { active: true, age: 0, size, jit: Math.random() * 2 - 1, ratio: Math.random() * 0.7 - 0.22,
       amp: Math.random() * 2 - 1, rate: 0.25 + Math.random() * 0.9, ic1: 0, ic2: 0, ic1b: 0, ic2b: 0, dGuard: 1, dgLvl: 0, env: 0 });
     d.fc = clamp(p.cutoff * Math.pow(2, (n - 60) / 12 * clamp(p.key, 0, 1)), 30, sr * 0.45);
-    let width = clamp(p.width, 0, 1); if (p.pattern === '3d' && width < 0.8) width = 0.8;
+    let width = clamp(p.width, 0, 1); if ((p.pattern === '3d' || c3) && width < 0.8) width = 0.8;
+    d.c3 = c3 ? 1 : 0;
     const angle = (clamp(d.jit * width, -1, 1) + 1) * 0.25 * Math.PI; d.gl = Math.cos(angle); d.gr = Math.sin(angle);
     d.len = clamp(p.fall, 0.02, 0.45) * sr * (1.5 + size * 4);
     // tone layer: this drip's own oscillator, at the drip's note
@@ -88,6 +91,22 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
       if (keep < 1 && r() >= keep) return;
     }
     const cluster = (n, gap, size, kind) => { for (let j = 1; j < n; j++) this.pending.push({ at: Math.round(gap * j), size: size * (0.85 - j * 0.08), kind }); };
+    // STEP SEQUENCER: lit steps always drip, as their own pattern, as hard as their accent; unlit steps are silent
+    const sq = this.seq;
+    if (sq && sq.on && sq.steps) {
+      const len = 4 * rate, st = sq.steps[((k % len) + len) % len];
+      if (!st || !st.on) return;
+      const A = 0.25 + clamp(+st.acc || 0, 0, 1);
+      switch (st.pat || p.pattern) {
+        case 'rain': { const s = r(); this.spawn((0.25 + s * s * 0.9) * A, 'rain'); break; }
+        case 'splash': { const n = 2 + ((r() * (2 + dens * 4)) | 0); this.spawn(0.9 * A, 'splash'); cluster(n, spb / 4, 0.75 * A, 'splash'); break; }
+        case 'stream': { this.spawn((0.35 + r() * 0.15) * A, 'stream'); cluster(2 + ((r() * 3) | 0), spb / 3, 0.3 * A, 'stream'); break; }
+        case 'storm': { this.spawn(0.85 * A, 'rain'); cluster(3 + ((r() * 3) | 0), spb / 4, 0.6 * A, 'splash'); break; }
+        case '3d': this.spawn(0.9 * A, 'rain', null, true); break;
+        default: this.spawn(0.85 * A, 'rain');   // even, both
+      }
+      return;
+    }
     switch (p.pattern) {
       case 'even': this.spawn(onBeat ? 0.85 : 0.6 + r() * 0.15, 'rain'); break;
       case 'rain': if (r() < 0.2 + dens * 0.7) { const s = r(); this.spawn(0.25 + s * s * 0.9, 'rain'); } break;
@@ -166,7 +185,8 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
         d.env = natural * Math.min(1, d.aenv);   // inaudible from here: free the voice
         if (d.env > gateNow) gateNow = d.env;
         let fall = Math.exp(-d.age / (fallT * sr * (0.45 + d.size * 0.9)));
-        if (chirp > 0) fall *= Math.pow(fall, chirp);
+        const ch = d.c3 ? 1 : chirp;
+        if (ch > 0) fall *= Math.pow(fall, ch);
         const scatter = d.jit * (0.25 + Math.abs(sweep) * 0.12);
         const swept = d.fc * Math.pow(2, sweep * fall + scatter * (0.45 + 0.55 * fall));
         const wobble = Math.sin(TAU * d.ph) * wob * (0.1 + 0.32 * d.size);

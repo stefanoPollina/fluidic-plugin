@@ -22,6 +22,10 @@ struct FxEngineParams
     double a = 0.001, d = 0.4, s = 1, r = 4, fKey = 0;                 // AMP per drip (neutral by default), filter KEY
 };
 
+// STEP SEQUENCER: lit steps always drip, as their own pattern (-1 = the PATTERN dial), as hard as their accent
+struct SeqStep { bool on = false; int pat = -1; double acc = 0.75; };
+struct Sequence { bool on = false; std::array<SeqStep, 32> steps {}; };
+
 class FluidicFxEngine
 {
 public:
@@ -47,6 +51,7 @@ public:
     double peak = 0; bool cutFlash = false;
     int activeDrops() const;
     long long gridStep() const { return step; }   // for the window's auto-roll
+    void setSequence (const Sequence& s) { seq = s; }
 
 private:
     struct Drop
@@ -54,14 +59,16 @@ private:
         bool active = false; double age = 0, size = 0.5, jit = 0, ratio = 0, amp = 0, rate = 1, fc = 900, ph = 0, gl = 0.707, gr = 0.707;
         double ic1 = 0, ic2 = 0, ic1b = 0, ic2b = 0, env = 0, len = 1, dGuard = 1, dgLvl = 0;
         int note = 60; double freq = 261.6, oph = 0; std::array<float, 64> noise {}; double aenv = 0; int astage = 1; double gate = 1;
+        bool c3 = false;   // a 3D drip from a sequencer step
     };
     struct Pending { double at; double size; DropKind kind; };
 
-    void spawn (double size, DropKind kind, int note = -1);
+    void spawn (double size, DropKind kind, int note = -1, bool c3 = false);
     void onStep (long long k, double spb);
     void renderBlock (const float* inL, const float* inR, float* L, float* R, int n);
 
     FxEngineParams p;
+    Sequence seq;
     std::array<Drop, maxDrops> drops;
     std::vector<Pending> pending;
     std::vector<int> held;

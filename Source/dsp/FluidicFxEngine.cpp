@@ -57,7 +57,7 @@ void FluidicFxEngine::setGridPosition (double stepsFromStart)
     }
 }
 
-void FluidicFxEngine::spawn (double size, DropKind kind, int note)
+void FluidicFxEngine::spawn (double size, DropKind kind, int note, bool c3)
 {
     Drop* d = nullptr;
     for (auto& x : drops) if (! x.active) { d = &x; break; }
@@ -69,7 +69,8 @@ void FluidicFxEngine::spawn (double size, DropKind kind, int note)
     d->jit = rng.next() * 2 - 1; d->ratio = rng.next() * 0.7 - 0.22; d->amp = rng.next() * 2 - 1; d->rate = 0.25 + rng.next() * 0.9;
     d->ic1 = d->ic2 = d->ic1b = d->ic2b = 0; d->dGuard = 1; d->dgLvl = 0; d->env = 0;
     d->fc = clampd (p.cutoff * std::pow (2.0, (n - 60) / 12.0 * clampd (p.key, 0, 1)), 30, sr * 0.45);
-    double width = clampd (p.width, 0, 1); if (p.pattern == Pattern::threeD && width < 0.8) width = 0.8;
+    double width = clampd (p.width, 0, 1); if ((p.pattern == Pattern::threeD || c3) && width < 0.8) width = 0.8;
+    d->c3 = c3;
     const double angle = (clampd (d->jit * width, -1, 1) + 1) * 0.25 * PI; d->gl = std::cos (angle); d->gr = std::sin (angle);
     d->len = clampd (p.fall, 0.02, 0.45) * sr * (1.5 + size * 4);
     // tone layer: this drip's own oscillator, at the drip's note
@@ -95,6 +96,23 @@ void FluidicFxEngine::onStep (long long k, double spb)
     }
     auto cluster = [this] (int n, double gap, double size, DropKind kind)
     { for (int j = 1; j < n; ++j) pending.push_back ({ (double) std::llround (gap * j), size * (0.85 - j * 0.08), kind }); };
+    // STEP SEQUENCER: lit steps always drip, as their own pattern, as hard as their accent; unlit steps are silent
+    if (seq.on)
+    {
+        const int len = 4 * rate; const auto& st = seq.steps[(size_t) (((k % len) + len) % len)];
+        if (! st.on) return;
+        const double A = 0.25 + clampd (st.acc, 0, 1);
+        switch (st.pat >= 0 ? (Pattern) st.pat : p.pattern)
+        {
+            case Pattern::rain: { const double s = r(); spawn ((0.25 + s * s * 0.9) * A, DropKind::rain); break; }
+            case Pattern::splash: { const int n = 2 + (int) (r() * (2 + dens * 4)); spawn (0.9 * A, DropKind::splash); cluster (n, spb / 4, 0.75 * A, DropKind::splash); break; }
+            case Pattern::stream: { const double s = 0.35 + r() * 0.15; spawn (s * A, DropKind::stream); const int n = 2 + (int) (r() * 3); cluster (n, spb / 3, 0.3 * A, DropKind::stream); break; }
+            case Pattern::storm: { spawn (0.85 * A, DropKind::rain); const int n = 3 + (int) (r() * 3); cluster (n, spb / 4, 0.6 * A, DropKind::splash); break; }
+            case Pattern::threeD: spawn (0.9 * A, DropKind::rain, -1, true); break;
+            default: spawn (0.85 * A, DropKind::rain);   // even, both
+        }
+        return;
+    }
     switch (p.pattern)
     {
         case Pattern::even: { const double s = onBeat ? 0.85 : 0.6 + r() * 0.15; spawn (s, DropKind::rain); break; }
@@ -194,7 +212,8 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
             d.env = natural * std::min (1.0, d.aenv);
             if (d.env > gateNow) gateNow = d.env;
             double fall = std::exp (-d.age / (fallT * sr * (0.45 + d.size * 0.9)));
-            if (chirp > 0) fall *= std::pow (fall, chirp);
+            const double ch = d.c3 ? 1 : chirp;
+            if (ch > 0) fall *= std::pow (fall, ch);
             const double scatter = d.jit * (0.25 + std::abs (sweep) * 0.12);
             const double swept = d.fc * std::pow (2.0, sweep * fall + scatter * (0.45 + 0.55 * fall));
             const double wobble = std::sin (TAU * d.ph) * wob * (0.1 + 0.32 * d.size);

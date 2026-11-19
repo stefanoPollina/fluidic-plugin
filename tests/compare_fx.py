@@ -10,7 +10,8 @@ JS = """async ([prm, seed, secs]) => {
   const b = Fluidic.makeBreak(sr, prm.bpm || 120), buf = ctx.createBuffer(2, b.length, sr); buf.copyToChannel(b.L, 0); buf.copyToChannel(b.R, 1);
   const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true;
   const fx = new AudioWorkletNode(ctx, 'fluidic-fx', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
-  s.connect(fx).connect(ctx.destination); fx.port.postMessage({ type: 'params', params: prm }); s.start();
+  s.connect(fx).connect(ctx.destination); fx.port.postMessage({ type: 'params', params: prm });
+  if (prm.seq) fx.port.postMessage({ type: 'seq', seq: { on: true, steps: prm.seq.split(',').map((t) => { const [o, pk, a] = t.split(':'); return { on: o === '1', pat: pk === '-' ? '' : pk, acc: +a }; }) } }); s.start();
   await new Promise(r => setTimeout(r, 50));
   const out = await ctx.startRendering();
   // the exact input the worklet saw: the looped break
@@ -37,8 +38,12 @@ CASES = {
  'AMP swell': {'pattern':'even','rate':2,'a':.3,'s':1,'r':1},
  'filter KEY': {'pattern':'both','fType':'lp24','fCut':500,'fKey':1},
  'FOLLOW off': {'pattern':'rain','rate':8,'follow':0},
+ 'SEQUENCER mixed patterns': {'pattern':'rain','rate':4,'seq':'1:-:0.9,0:-:0.75,1:splash:0.5,0:-:0.75,1:3d:1,0:-:0.75,1:stream:0.3,1:even:0.75,0:-:0.75,1:storm:0.6,0:-:0.75,1:rain:0.2,1:both:0.75,0:-:0.75,1:-:0,0:-:0.75'},
+ 'SEQUENCER 1/8, sparse': {'pattern':'splash','rate':2,'seq':'1:-:1,0:-:0.75,0:-:0.75,1:3d:0.4,0:-:0.75,1:-:0.75,0:-:0.75,0:-:0.75'},
  'FOLLOW half, 1/32': {'pattern':'stream','rate':8,'follow':.5},
 }
+import os
+if os.environ.get('ONLY'): CASES = {k:v for k,v in CASES.items() if os.environ['ONLY'] in k}
 async def main():
   fails = 0
   async with async_playwright() as p:

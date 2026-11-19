@@ -173,7 +173,7 @@
   .start b { display: block; font-size: 22px; letter-spacing: .4em; color: var(--aqua); }
   .start small { color: var(--dim); letter-spacing: .14em; }
   .autoroll { flex-basis: 100%; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 7px; margin-top: 1px; }
-  .autoroll small { color: var(--dim); font-size: 8.5px; letter-spacing: .16em; }
+  .autoroll small, .seqrow small { color: var(--dim); font-size: 8.5px; letter-spacing: .16em; }
   .autobtn { background: #141517; border: 1px solid var(--line-2); color: var(--text); border-radius: 6px; height: 26px; padding: 0 12px; font: inherit; font-size: 10px; letter-spacing: .14em; cursor: pointer; white-space: nowrap; }
   .autobtn.on { background: var(--amber); border-color: var(--amber); color: #1a1205; font-weight: 700; }
   .segs.mini { display: grid; gap: 3px; }
@@ -188,6 +188,23 @@
   .stepbox.on { background: #3a2c12; border-color: var(--amber); }
   .stepbox.here { box-shadow: 0 0 0 2px var(--aqua) inset; }
   .stepbox.on.here { background: var(--amber); }
+  /* STEP SEQUENCER */
+  .seqrow { flex-basis: 100%; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 7px; }
+  .seqrow .autobtn.on { background: var(--aqua); border-color: var(--aqua); color: #04161a; }
+  .seqside { display: flex; flex-direction: column; gap: 4px; }
+  .seqbrush { display: grid; grid-template-columns: repeat(4, max-content); gap: 3px; }
+  .seqbrush button { padding: 3px 6px; font-size: 9px; }
+  .seqtools { display: flex; gap: 4px; }
+  .seqtools button { height: 20px; padding: 0 8px; font-size: 9px; }
+  .seqgrid { flex: 1; display: grid; gap: 3px; min-width: 160px; }
+  .seqcell { position: relative; height: 42px; border-radius: 4px; border: 1px solid var(--line-2); background: #121316; cursor: ns-resize; padding: 0; overflow: hidden; touch-action: none; }
+  .seqcell.beat { border-color: #3a414b; }
+  .seqcell i { position: absolute; left: 0; right: 0; bottom: 0; background: #12343a; display: none; }
+  .seqcell.on { border-color: var(--aqua-d); }
+  .seqcell.on i { display: block; background: linear-gradient(to top, var(--aqua-d), var(--aqua)); opacity: .85; }
+  .seqcell b { position: absolute; left: 0; right: 0; top: 2px; font: 600 7.5px var(--mono); color: #e9fbfe; letter-spacing: 0; text-align: center; pointer-events: none; text-shadow: 0 0 3px #000; }
+  .seqcell.here { box-shadow: 0 0 0 2px var(--amber) inset; }
+  .seqrow.off .seqcell.on i { opacity: .35; }
   .rollmini { position: absolute; right: 12px; bottom: 10px; z-index: 3; pointer-events: none; font: 600 11px var(--mono); color: var(--amber); background: rgba(5,12,16,.8); border: 1px solid #4a3a1a; border-radius: 6px; padding: 4px 8px; opacity: 0; transition: opacity .4s; }
   .rollmini b { color: #e9fbfe; letter-spacing: .1em; margin-right: 4px; }
   .rollmini.pop { opacity: 1; transition: none; }
@@ -444,12 +461,12 @@ const Fluidic = (() => {
     }
     function persistUi() {
       const st = { preset: current, view: vizView };
-      if (FX) st.auto = autoState();
+      if (FX) { st.auto = autoState(); st.seq = seqData(); }
       if (typeof holdState === 'function' && panelHolds) st.holds = holdState();
       if (plugin) plugin.saveUi(JSON.stringify(st));
       else {
         try {
-          if (FX) localStorage.setItem('fluidic-fx-auto', JSON.stringify(st.auto));
+          if (FX) { localStorage.setItem('fluidic-fx-auto', JSON.stringify(st.auto)); localStorage.setItem('fluidic-fx-seq', JSON.stringify(st.seq)); }
           if (st.holds) localStorage.setItem(FX ? 'fluidic-fx-holds' : 'fluidic-holds', JSON.stringify(st.holds));
         } catch (e) {}
       }
@@ -485,6 +502,7 @@ const Fluidic = (() => {
             (m.events || []).forEach((ev) => spawn(ev, now));
             viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
             if (m.auto) pluginAuto(m.auto, m.rolls);   // FLUIDIC FX: the plugin rolls the dice, even with this window shut
+            if (m.step != null) seqStep(m.step);
           });
         }
         if (startOverlay.isConnected) startOverlay.remove();
@@ -509,8 +527,9 @@ const Fluidic = (() => {
         const now = performance.now();
         m.events.forEach((ev) => spawn(ev, now));
         viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
-        if (m.step != null) gridSteps(m.step);
+        if (m.step != null) { gridSteps(m.step); seqStep(m.step); }
       };
+      if (FX) node.port.postMessage({ type: 'seq', seq: seqData() });
       // ping-pong delay and reverb sends, then a safety limiter on the output
       const master = ctx.createGain(), dry = ctx.createGain(), dSend = ctx.createGain(), rSend = ctx.createGain();
       const dL = ctx.createDelay(2), dR = ctx.createDelay(2), fb = ctx.createGain(), merge = ctx.createChannelMerger(2), tone = ctx.createBiquadFilter();
@@ -1016,6 +1035,109 @@ const Fluidic = (() => {
       widgets.push({ id: 'rhy.rate', paint: paintAuto });
       paintAuto();
     }
+    // STEP SEQUENCER: program where drips fall. Lit steps always drip, each as its own pattern (or the PATTERN dial),
+    // as hard as its accent (drag a step up or down). The grid (1/4 … 1/32) sets how many steps there are.
+    const SEQ_MAX = 32, SEQ_ABBR = { even: 'E', rain: 'R', both: 'B', '3d': '3D', splash: 'SP', stream: 'ST', storm: 'SM' };
+    let seqOn = false, seqBrush = '', seqPos = -1, seqBtn = null, seqGrid = null, seqRow = null, seqCells = [], seqBrushBtns = [];
+    let seqSteps = Array.from({ length: SEQ_MAX }, () => ({ on: false, pat: '', acc: 0.75 }));
+    function seqData() { return { on: seqOn, steps: seqSteps.map((x) => ({ on: !!x.on, pat: x.pat || '', acc: Math.round(x.acc * 100) / 100 })) }; }
+    function setSeqState(q) {
+      if (!q || !FX) return;
+      seqOn = !!q.on;
+      seqSteps = Array.from({ length: SEQ_MAX }, (_, i) => {
+        const x = (q.steps || [])[i] || {};
+        return { on: !!x.on, pat: SEQ_ABBR[x.pat] ? x.pat : '', acc: Math.min(1, Math.max(0, x.acc == null ? 0.75 : +x.acc)) };
+      });
+      seqChanged(true);
+    }
+    function seqChanged(quiet) {
+      paintSeq();
+      if (node && !plugin) node.port.postMessage({ type: 'seq', seq: seqData() });
+      if (!quiet || plugin) persistUi();
+    }
+    function seqStep(k) {
+      if (!seqGrid) return;
+      const len = stepsPerBar(), pos = seqOn ? ((k % len) + len) % len : -1;
+      if (pos !== seqPos) { seqPos = pos; seqCells.forEach((c, i) => c.classList.toggle('here', i === seqPos)); }
+    }
+    function paintSeq() {
+      if (!seqGrid) return;
+      const len = stepsPerBar(), per = len / 4;
+      seqBtn.classList.toggle('on', seqOn); seqBtn.textContent = seqOn ? 'SEQUENCER · ON' : 'SEQUENCER';
+      seqRow.classList.toggle('off', !seqOn);
+      seqBrushBtns.forEach(([k, b]) => b.classList.toggle('on', k === seqBrush));
+      if (seqCells.length !== len) {
+        seqGrid.innerHTML = '';
+        seqCells = Array.from({ length: len }, (_, i) => {
+          const c = el('button', 'seqcell' + (i % per === 0 ? ' beat' : '')); c.type = 'button';
+          c.title = 'Step ' + (i + 1) + ': click to light it (with the pattern brush) or clear it · drag up/down for accent';
+          c.append(el('i'), el('b'));
+          let y0 = 0, dragged = false;
+          const accAt = (e) => { const r = c.getBoundingClientRect(); return Math.min(1, Math.max(0, (r.bottom - e.clientY) / r.height)); };
+          c.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; y0 = e.clientY; dragged = false; c.setPointerCapture(e.pointerId); });
+          c.addEventListener('pointermove', (e) => {
+            if (!c.hasPointerCapture(e.pointerId)) return;
+            if (!dragged && Math.abs(e.clientY - y0) < 4) return;
+            dragged = true; const st = seqSteps[i]; if (!st.on) { st.on = true; st.pat = seqBrush; } st.acc = accAt(e); paintSeq();
+          });
+          c.addEventListener('pointerup', (e) => {
+            if (!c.hasPointerCapture(e.pointerId)) return;
+            c.releasePointerCapture(e.pointerId);
+            const st = seqSteps[i];
+            if (!dragged) {
+              if (st.on && st.pat === seqBrush) st.on = false;   // same brush: clear it
+              else { st.on = true; st.pat = seqBrush; }          // light it, or repaint its pattern
+            }
+            seqChanged();
+          });
+          c.addEventListener('contextmenu', (e) => {   // right-click: cycle this step's pattern
+            e.preventDefault(); const st = seqSteps[i], keys = [''].concat(PATTERNS.map((x) => x[0]));
+            st.pat = keys[(keys.indexOf(st.pat) + 1) % keys.length]; st.on = true; seqChanged();
+          });
+          seqGrid.append(c); return c;
+        });
+        seqGrid.style.gridTemplateColumns = 'repeat(' + len + ', minmax(0, 1fr))';
+        seqPos = -1;
+      }
+      seqCells.forEach((c, i) => {
+        const st = seqSteps[i];
+        c.classList.toggle('on', st.on);
+        c.firstChild.style.height = Math.round((st.on ? st.acc : 0) * 100) + '%';
+        c.lastChild.textContent = st.on ? (SEQ_ABBR[st.pat] || '') : '';
+      });
+    }
+    if (FX) {
+      seqRow = el('div', 'seqrow');
+      seqBtn = el('button', 'autobtn', 'SEQUENCER'); seqBtn.type = 'button';
+      seqBtn.title = 'Program where the drips fall: lit steps drip, unlit steps stay dry';
+      seqBtn.addEventListener('click', () => {
+        seqOn = !seqOn;
+        if (seqOn && !seqSteps.slice(0, stepsPerBar()).some((x) => x.on)) {   // empty: start from the beats
+          const per = stepsPerBar() / 4; seqSteps.forEach((x, i) => { x.on = i % per === 0 && i < stepsPerBar(); x.pat = ''; });
+        }
+        seqChanged();
+      });
+      const side = el('div', 'seqside'), brush = el('div', 'segs mini seqbrush');
+      seqBrushBtns = [['', 'DIAL']].concat(PATTERNS).map(([k, label]) => {
+        const b = el('button', '', label); b.type = 'button';
+        b.title = k ? 'Brush: steps you click drip as ' + label : 'Brush: steps you click follow the PATTERN dial';
+        b.addEventListener('click', () => { seqBrush = k; paintSeq(); }); brush.append(b); return [k, b];
+      });
+      const tools = el('div', 'seqtools');
+      const clr = el('button', 'lock', 'CLEAR'); clr.type = 'button'; clr.title = 'Clear every step';
+      clr.addEventListener('click', () => { seqSteps.forEach((x) => { x.on = false; x.pat = ''; x.acc = 0.75; }); seqChanged(); });
+      const fill = el('button', 'lock', 'BEATS'); fill.type = 'button'; fill.title = 'Light every beat with the brush';
+      fill.addEventListener('click', () => { const len = stepsPerBar(), per = len / 4; seqSteps.forEach((x, i) => { if (i < len && i % per === 0) { x.on = true; x.pat = seqBrush; } }); seqChanged(); });
+      const flat = el('button', 'lock', 'ACCENTS 75'); flat.type = 'button'; flat.title = 'Set every accent back to 75%';
+      flat.addEventListener('click', () => { seqSteps.forEach((x) => { x.acc = 0.75; }); seqChanged(); });
+      tools.append(clr, fill, flat);
+      side.append(brush, tools);
+      seqGrid = el('div', 'seqgrid');
+      seqRow.append(seqBtn, el('small', '', 'BRUSH'), side, seqGrid);
+      tray.append(seqRow);
+      widgets.push({ id: 'rhy.rate', paint: paintSeq });
+      paintSeq();
+    }
     function autoState() { return { on: autoOn, die: autoDie, mode: autoMode, mask: autoMode === 'custom' ? autoMask.map((x) => (x ? 1 : 0)).join('') : '', holdRate, holdPattern }; }
     function setAutoState(a) {
       if (!a || !FX) return;
@@ -1480,7 +1602,7 @@ const Fluidic = (() => {
     }
     requestAnimationFrame(frame);
 
-    if (!plugin && FX) { try { setAutoState(JSON.parse(localStorage.getItem('fluidic-fx-auto') || 'null')); } catch (e) {} }   // before the preset saves the state
+    if (!plugin && FX) { try { setAutoState(JSON.parse(localStorage.getItem('fluidic-fx-auto') || 'null')); setSeqState(JSON.parse(localStorage.getItem('fluidic-fx-seq') || 'null')); } catch (e) {} }   // before the preset saves the state
     if (!plugin) { try { setHoldState(JSON.parse(localStorage.getItem(FX ? 'fluidic-fx-holds' : 'fluidic-holds') || 'null')); } catch (e) {} }
     if (!plugin) loadPreset(OPEN_ON);   // FLUIDIC opens on the sine pad; FLUIDIC FX on Drippiness
     else {
@@ -1495,6 +1617,7 @@ const Fluidic = (() => {
         fillPresets(); widgets.forEach((w) => w.paint());
         if (ui.auto) setAutoState(ui.auto);
         if (ui.holds) setHoldState(ui.holds);
+        if (ui.seq) setSeqState(ui.seq);
         history = []; hp = -1; commit();
       };
       plugin.on('init', fromHost);

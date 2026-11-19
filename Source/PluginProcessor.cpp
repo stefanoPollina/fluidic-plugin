@@ -120,7 +120,30 @@ void FluidicProcessor::setUiState (const juce::String& s)
 {
     const juce::ScopedLock l (uiLock);
     uiState = s;
-    if (isFx) { pendingAuto = parseAuto (s); autoDirty = true; }
+    if (isFx)
+    {
+        pendingAuto = parseAuto (s); autoDirty = true;
+        Sequence q;   // STEP SEQUENCER: { on, steps: [{ on, pat (pattern key, '' = the dial), acc }] }
+        const auto v = juce::JSON::parse (s)["seq"];
+        if (v.isObject())
+        {
+            q.on = (bool) v["on"];
+            const ParamSpec* pat = nullptr; for (auto& t : paramTable()) if (juce::String (t.id) == "drip.pattern") pat = &t;
+            if (auto* st = v["steps"].getArray())
+                for (int i = 0; i < juce::jmin (32, st->size()); ++i)
+                {
+                    const auto& x = st->getReference (i);
+                    auto& d = q.steps[(size_t) i];
+                    d.on = (bool) x["on"];
+                    d.acc = x.hasProperty ("acc") ? juce::jlimit (0.0, 1.0, (double) x["acc"]) : 0.75;
+                    d.pat = -1;
+                    const auto key = x["pat"].toString();
+                    if (pat != nullptr) for (size_t k = 0; k < pat->keys.size(); ++k) if (key == juce::String (pat->keys[k])) d.pat = (int) k;
+                }
+        }
+        const juce::SpinLock::ScopedLockType sl (seqLock);
+        pendingSeq = q; seqDirty = true;
+    }
 }
 
 void FluidicProcessor::runAutoRoll()
@@ -218,6 +241,11 @@ void FluidicProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
     {
         // a mono track arrives on channel 0 only
         if (getTotalNumInputChannels() == 1) buffer.copyFrom (1, 0, buffer, 0, 0, n);
+        if (seqDirty.load())   // a new STEP SEQUENCER pattern from the window (or the project)
+        {
+            const juce::SpinLock::ScopedTryLockType sl (seqLock);
+            if (sl.isLocked()) { fxEngine.setSequence (pendingSeq); seqDirty = false; }
+        }
         // follow the host: its tempo, and while it plays, its position (so the drip grid sits on the song's grid)
         auto& q = fxEngine.params();
         if (auto* ph = getPlayHead())
