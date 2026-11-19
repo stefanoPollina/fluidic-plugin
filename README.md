@@ -28,7 +28,7 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
   - **A row or group:** click its side caption: TONE, PATTERN, PITCH, DROP, SPREAD, SHAPE (filter type), CUT · RES, ENV, KEY · LFO, RISE, HOLD · FADE, DELAY, VERB · OUT.
   - **One dial:** right-click it → *Hold from dice*.
 
-  The grid locks to your DAW's tempo and song position. **CHOP** gates the track to the drip rhythm, re-cutting it, and **MIX** goes from dry to wet. With **SENSE** up, the track's own hits trigger drips too, and MIDI notes sent to the effect set the drips' pitch. In Ableton it's under *Audio Effects*; in FL Studio, load it in a Mixer slot.
+  The grid locks to your DAW's tempo and song position, and only drips while the DAW is playing: stop the transport and the drips ring out and stop. **CHOP** gates the track to the drip rhythm, re-cutting it, and **MIX** goes from dry to wet. With **SENSE** up, the track's own hits trigger drips too, and MIDI notes sent to the effect set the drips' pitch. In Ableton it's under *Audio Effects*; in FL Studio, load it in a Mixer slot.
 
 - **Same sound as the prototype.** The engine is a line-by-line C++ port of the prototype's audio engine. Rendered with the same random seed, it matches the browser sample for sample. The effects bus (ping-pong delay, reverb, output limiter) matches the browser chain to within a fraction of a dB. See *Checking the sound* below.
 - **Same interface.** The plugin window is the prototype's own page, running in Microsoft Edge WebView2, which is built into Windows 10 and 11. It has the drip visualiser (side and top views), dice with locks and history, the on-screen keyboard, the user bank, and full-screen-friendly sizing.

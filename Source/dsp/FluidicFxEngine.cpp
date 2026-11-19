@@ -40,6 +40,7 @@ void FluidicFxEngine::noteOff (int note) { held.erase (std::remove (held.begin()
 void FluidicFxEngine::setGridPosition (double stepsFromStart)
 {
     // called each block while the host is playing: keep our grid on the host's
+    gridRun = true;
     const long long k = (long long) std::floor (stepsFromStart + 1e-9);
     const double rate = std::max (1, p.rate), spb = sr * 60 / clampd (p.bpm, 30, 300) / rate;
     const double frac = stepsFromStart - (double) k;
@@ -153,8 +154,11 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
     for (int i = 0; i < n; ++i)
     {
         const double xl = inL ? inL[i] : 0, xr = inR ? inR[i] : (inL ? inL[i] : 0), mono = 0.5 * (xl + xr);
-        clock += 1;
-        if (clock >= spb) { clock -= spb; step += 1; onStep (step, spb); }
+        if (gridRun)
+        {
+            clock += 1;
+            if (clock >= spb) { clock -= spb; step += 1; onStep (step, spb); }
+        }
         for (int j = (int) pending.size() - 1; j >= 0; --j)
         {
             auto& q = pending[(size_t) j];

@@ -36,7 +36,9 @@ public:
     void sync() { clock = 0; step = 0; pending.clear(); }
     // host transport: put the grid at this position (in grid steps since the song start)
     void setGridPosition (double stepsFromStart);
-    void hostStopped() { gridFresh = true; }   // next play start re-locks, and fires a step that starts right there
+    // host transport stopped: the grid stops dropping (drips already falling ring out); the next play start
+    // re-locks, and fires a step that starts right there. Hosts that never report a transport keep a free-running grid.
+    void hostStopped() { gridFresh = true; gridRun = false; pending.clear(); }
 
     // in and out may be the same buffers
     void process (const float* inL, const float* inR, float* outL, float* outR, int n);
@@ -65,7 +67,7 @@ private:
     std::vector<int> held;
     Rng rng;
     double sr = 48000, clock = 0, fast = 0, slow = 0, refractory = 0, gate = 0, lfoPh = 0; int lastNote = 60;
-    long long step = 0; bool gridFresh = true;
+    long long step = 0; bool gridFresh = true, gridRun = true;
     std::array<double, 8> fst {}; double fenv = 0, fg = 0.1; int fstage = 0;
 };
 } // namespace fluidic
