@@ -21,7 +21,7 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
   - **Syncopated:** off-beats, backbeat, tresillo, son and rumba clave, bossa nova, dotted 8ths, gallop, Euclidean 5/7/9, and a random bar.
   - **Your own pattern** of steps.
 
-  **HOLD GRID** keeps the 1/4–1/32 grid and **HOLD PATTERN** keeps the drip style while the rest rolls. In a DAW the dice roll inside the plugin itself, so auto-roll keeps going with the plugin window closed (and during export).
+  **HOLD GRID** keeps the 1/4–1/32 grid and **HOLD PATTERN** keeps the drip style while the rest rolls. In a DAW the dice roll inside the plugin itself, so auto-roll keeps going with the plugin window closed. Rolls happen in real time: to get them into an export, record them as automation first (arm automation and play), or bounce the track in real time.
 
 - **Hold anything from the dice** (both plugins, manual and auto rolls). Everything you hold saves with the project.
   - **A whole panel:** its **HOLD** button.
