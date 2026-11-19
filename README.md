@@ -37,6 +37,8 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
   - **SLOSH** rocks the body: drips lean left and right and their pitch swells with it. In FLUIDIC FX it sways in time with the beat; in FLUIDIC, **SWAY** sets its speed.
   - **TURB** (turbulence) knocks each drip's pitch, timing and place about, and keeps churning while it rings.
   - **CASCADE** spills drips into smaller, higher ones, which can spill again: water running down steps.
+  - **RIPPLE**: every drip sends out a ripple, a train of soft pulses that re-ring the water: fast and gentle at first, then slower, softer, a touch lower and further out as they fade and spread. Cascades ripple too, and with SLOSH up the body hitting the wall at each end of a sway ripples back in.
+  - **COLLIDE**: when two ripples meet they ring a harmonic of where they meet (a fifth, an octave or a major third), which ripples outwards in turn. Every collision is smaller than what caused it, so the feedback always dies away.
   - The dice can roll FLOW too (gently), and the FLUID visual sways with the sound's SLOSH.
 - **FLUID water** (the button next to SIDE / TOP, both plugins): the visual becomes a real wave simulation. Ripples interfere, splash droplets fall back and ripple again, the water sloshes in time with the beat, and the surface churns when it gets loud. Saved with the project.
 - **Hold anything from the dice** (both plugins, manual and auto rolls). Everything you hold saves with the project.

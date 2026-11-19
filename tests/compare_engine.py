@@ -30,6 +30,9 @@ CASES = {
  'FLOW slosh (sway 2 Hz)': {'pattern':'both','slosh':1,'sway':2},
  'FLOW turbulence rain': {'pattern':'rain','turb':.8},
  'FLOW cascade even': {'pattern':'even','cascade':.9},
+ 'FLOW ripple rain': {'pattern':'rain','ripple':.8},
+ 'FLOW ripple + collide both': {'pattern':'both','ripple':1,'collide':1,'density':.8},
+ 'FLOW everything storm': {'pattern':'storm','slosh':.7,'sway':1.5,'turb':.4,'cascade':.6,'ripple':.9,'collide':.8,'width':.6},
  'FLOW cascade storm + turb': {'pattern':'storm','cascade':.7,'turb':.5,'slosh':.4},
 }
 NOTES=[48,55,62,67]

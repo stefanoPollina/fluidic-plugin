@@ -68,7 +68,7 @@ private:
     fluidic::FluidicEngine engine;
     fluidic::FluidicFxEngine fxEngine;
     std::atomic<float> *pRate{}, *pBpm{}, *pSense{}, *pMix{}, *pChop{}, *pDrive{}, *pFollow{};
-    std::atomic<float> *pSlosh{}, *pSway{}, *pTurb{}, *pCasc{};   // FLOW
+    std::atomic<float> *pSlosh{}, *pSway{}, *pTurb{}, *pCasc{}, *pRipple{}, *pCollide{};   // FLOW
     std::atomic<float> sloshNow { 0 };
     std::vector<std::unique_ptr<std::atomic<float>>> fallbacks;   // stand-ins for parameters the other plugin owns
     fluidic::FxBus fx;

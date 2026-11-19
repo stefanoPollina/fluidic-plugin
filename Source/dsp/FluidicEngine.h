@@ -23,7 +23,7 @@ struct EngineParams
     FilterType fType = FilterType::off;
     double fCut = 2400, fRes = 0.25, fDrive = 0, fKey = 0.5, fEnv = 0, fA = 0.01, fD = 0.6, fRate = 0.15, fDepth = 0;
     double a = 0.004, d = 0.4, s = 0.7, r = 0.5, level = 0.8;
-    double slosh = 0, sway = 0.5, turb = 0, cascade = 0;   // FLOW: the water as one body (0 = off)
+    double slosh = 0, sway = 0.5, turb = 0, cascade = 0, ripple = 0, collide = 0;   // FLOW: the water as one body (0 = off)
 };
 
 enum class DropKind : uint8_t { note, rain, splash, stream };
@@ -68,6 +68,7 @@ private:
         std::array<double, 8> fst {}; double fenv = 0; int fstage = 0; double fg = 0.1;
         double gl = 0.7071, gr = 0.7071; int pendNote = -1; double pendVel = 0; bool pendOff = false;
         double tw = 0, cascW = 0, cascSize = 0; int cascN = 0; bool cascOn = false;   // FLOW: turbulence walk, the next cascade drip
+        double ripT = 0, ripGap = 0, ripAmp = 0, ripDir = 1, hm = 1; int ripN = 0;     // RIPPLE train on this voice; hm: pitch ×
     };
 
     void startVoice (Voice& v, int note, double vel);
@@ -76,6 +77,9 @@ private:
     void drop (const Voice& v, double size, DropKind kind);
     void flowBirth (Voice& v, double size, double T, double C);
     void cascadeFrom (Voice& v, double size, double C);
+    void rippleStart (Voice& v, double size);
+    void ripPulse (Voice& v, int vi);
+    long long tAbs = 0; bool hasLast = false; struct { long long time; int vi; double amp, hm; } lastPulse {}; double prevSl = 0, prevDs = 0;
     void renderBlock (float* L, float* R, int n);   // n <= 128, same per-block maths as the worklet
 
     EngineParams p;

@@ -63,7 +63,7 @@ void FluidicEngine::startVoice (Voice& v, int note, double vel)
 {
     const bool wasIdle = ! v.active;
     v.active = true; v.id = note; v.note = note; v.vel = vel; v.gate = true; v.age = 0; v.stage = Stage::attack;
-    v.dripKick = true; v.dripAge = 1e9; v.dGuard = 1; v.dgLvl = 0; v.tw = 0; v.cascW = 0; v.cascN = 0; v.cascOn = false;
+    v.dripKick = true; v.dripAge = 1e9; v.dGuard = 1; v.dgLvl = 0; v.tw = 0; v.cascW = 0; v.cascN = 0; v.cascOn = false; v.ripT = 0; v.hm = 1;
     v.ic1 = v.ic2 = v.ic1b = v.ic2b = 0;
     v.fenv = 0; v.fstage = 1; if (wasIdle) v.fst.fill (0);
     double s = 0; for (double x : v.fst) s += x;
@@ -87,6 +87,7 @@ void FluidicEngine::noteOff (int note)
 // FLOW at each drip's birth: TURB knocks its timing and pitch about; CASCADE may queue a smaller, higher drip after it
 void FluidicEngine::flowBirth (Voice& v, double size, double T, double C)
 {
+    v.hm = 1; rippleStart (v, size);
     if (T > 0.001)
     {
         v.dripWait *= 1 + (rng.next() * 2 - 1) * T * 0.7; if (v.dripWait < 12) v.dripWait = 12;
@@ -102,6 +103,36 @@ void FluidicEngine::cascadeFrom (Voice& v, double size, double C)
         v.cascW = std::max (24.0, sr * (0.03 + rng.next() * 0.14) * (1.25 - C * 0.6));
         v.cascSize = size * (0.5 + rng.next() * 0.25); v.cascN += 1;
     }
+}
+
+// RIPPLE: a drip sends out a train of soft pulses that re-ring its voice: fast and gentle, then slower, softer, lower, wider
+void FluidicEngine::rippleStart (Voice& v, double size)
+{
+    const double R = clampd (p.ripple, 0, 1);
+    if (R <= 0.001) return;
+    v.ripGap = sr * (0.028 + rng.next() * 0.012); v.ripT = v.ripGap; v.ripAmp = size * (0.25 + 0.35 * R); v.ripN = 0; v.ripDir = v.dripJit >= 0 ? 1 : -1;
+}
+
+void FluidicEngine::ripPulse (Voice& v, int vi)
+{
+    static constexpr double COLL[] = { 1.5, 2, 1.25 };   // COLLIDE: a fifth, an octave or a major third above where they meet
+    const double R = clampd (p.ripple, 0, 1), Cl = clampd (p.collide, 0, 1), W = sr * (0.012 + 0.04 * Cl);
+    v.dripAge = 0; v.dripHit = 3; v.dripSize = v.ripAmp; v.cascOn = true;
+    v.dripJit = clampd (v.dripJit + v.ripDir * 0.12, -1.8, 1.8); v.hm *= 0.985;
+    drop (v, v.dripSize, DropKind::stream);
+    // COLLIDE: meeting another voice's ripple rings that voice at a harmonic of where they meet, and it ripples in turn (smaller)
+    if (Cl > 0.001 && hasLast && lastPulse.vi != vi && (double) (tAbs - lastPulse.time) < W && voices[(size_t) lastPulse.vi].active)
+    {
+        auto& o = voices[(size_t) lastPulse.vi];
+        const double ratio = COLL[(int) (rng.next() * 3)], a = std::sqrt (v.ripAmp * lastPulse.amp) * (0.4 + 0.5 * Cl);
+        o.dripAge = 0; o.dripHit = 3; o.dripSize = a; o.cascOn = true; o.hm = clampd (std::sqrt (v.hm * lastPulse.hm) * ratio, 0.25, 4);
+        drop (o, a, DropKind::splash);
+        if (R > 0.001) { o.ripGap = sr * (0.018 + rng.next() * 0.012); o.ripT = o.ripGap; o.ripAmp = a * 0.7; o.ripN = 0; o.ripDir = -v.ripDir; }
+        hasLast = false;
+    }
+    else { hasLast = true; lastPulse = { tAbs, vi, v.ripAmp, v.hm }; }
+    v.ripN += 1; v.ripGap *= 1.28 + 0.1 * (1 - R); v.ripAmp *= 0.55 + 0.25 * R;
+    v.ripT = v.ripAmp < 0.05 || v.ripN >= 12 ? 0 : v.ripGap;
 }
 
 void FluidicEngine::drop (const Voice& v, double size, DropKind kind)
@@ -194,6 +225,16 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
     const double S = clampd (p.slosh, 0, 1), T = clampd (p.turb, 0, 1), C = clampd (p.cascade, 0, 1);
     sloshPh = wrap01 (sloshPh + clampd (p.sway, 0.02, 8) * n / sr);
     sl = std::sin (TAU * sloshPh) * S;
+    {   // the body turning at the end of a sway hits the wall: the voice nearest that side ripples back in
+        const double R = clampd (p.ripple, 0, 1), ds = sl - prevSl;
+        if (R > 0.001 && S > 0.001 && prevDs * ds < 0 && std::abs (prevSl) > 0.25 * S)
+        {
+            const double side = prevSl > 0 ? 1 : -1;
+            Voice* best = nullptr; for (auto& v : voices) if (v.active && (best == nullptr || v.pan * side > best->pan * side)) best = &v;
+            if (best != nullptr) { best->ripGap = sr * 0.03; best->ripT = 1; best->ripAmp = std::abs (prevSl) * 0.45 * R; best->ripN = 0; best->ripDir = -side; }
+        }
+        prevDs = ds; prevSl = sl;
+    }
     for (auto& v : voices)
     {
         if (! v.active) continue;
@@ -209,10 +250,12 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
     for (int i = 0; i < n; ++i)
     {
         double busL = 0, busR = 0;
+        tAbs += 1;
         lfoPh += lfoInc; if (lfoPh >= 1) lfoPh -= 1;
         const double lfo = std::sin (lfoPh * TAU);
-        for (auto& v : voices)
+        for (int vi = 0; vi < (int) voices.size(); ++vi)
         {
+            auto& v = voices[(size_t) vi];
             if (! v.active) continue;
             const double envv = env (v, ka, kd, kr);
             if (! v.active) continue;
@@ -290,8 +333,10 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
                     v.dripJit = clampd (v.dripJit + 0.25 + rng.next() * 0.35, -1.8, 1.8);
                     drop (v, v.dripSize, DropKind::stream);
                     cascadeFrom (v, v.dripSize, C);
+                    rippleStart (v, v.dripSize);
                 }
             }
+            if (v.ripT > 0) { v.ripT -= 1; if (v.ripT <= 0) ripPulse (v, vi); }
             if (v.dripHit > 0) v.dripHit -= 1;
             v.dripAge += 1;
 
@@ -323,7 +368,7 @@ void FluidicEngine::renderBlock (float* L, float* R, int n)
                 wobble = std::sin (TAU * v.dripPh) * wob * 0.28;
                 dripRatio = 1.51;
             }
-            const double fc = clampd (swept * (1 + wobble), 32, sr * 0.45);
+            const double fc = clampd (swept * (1 + wobble) * v.hm, 32, sr * 0.45);
             v.dripPh = wrap01 (v.dripPh + (fc * (0.42 + dripRes * 0.5) * (dripMode == mRain ? v.dripRate : 1)) / sr);
             const double g = std::tan (PI * fc / sr), k = 1 / dripQ, a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
             const double gb = std::tan (PI * clampd (fc * dripRatio, 40, sr * 0.45) / sr), kb = 1 / std::max (1.6, dripQ * 0.62);

@@ -65,6 +65,8 @@ inline const std::vector<ParamSpec>& paramTable()
     { "flow.sway", "Slosh sway rate", Kind::number, 0.05f, 6.0f, 0.5f, true, {}, {}, "Hz", 0.5f, true, false },
     { "flow.turb", "Turbulence", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, false },
     { "flow.cascade", "Cascade", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, false },
+    { "flow.ripple", "Ripple", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, false },
+    { "flow.collide", "Collide", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, false },
     };
     return table;
 }

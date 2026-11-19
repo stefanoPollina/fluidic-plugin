@@ -10,13 +10,14 @@ const TAU = Math.PI * 2;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const wrap01 = (x) => { x -= Math.floor(x); return x < 0 ? x + 1 : x; };
 const DROPS = 12;
+const COLL = [1.5, 2, 1.25];   // COLLIDE: two ripples meeting ring a fifth, an octave or a major third above where they meet
 
 const DEFAULTS = {
   pattern: 'even', rate: 4, bpm: 120, density: 0.5, sense: 0,
   cutoff: 900, res: 0.8, ping: 0.6, sweep: 2.2, fall: 0.08, bubble: 0.55, wobble: 0.3,
   chirp: 0, width: 0.4, size: 0.5, edge: 0, key: 1,
   mix: 0.5, chop: 0, drive: 1, follow: 1,
-  slosh: 0, turb: 0, cascade: 0,                          // FLOW: the water as one body (0 = off)
+  slosh: 0, turb: 0, cascade: 0, ripple: 0, collide: 0,  // FLOW: the water as one body (0 = off)
   fType: 'off', fCut: 2400, fRes: 0.25, fDrive: 0, fEnv: 0, fA: 0.005, fD: 0.25, fRate: 0.15, fDepth: 0,
   level: 0.8,
   wave: 'saw', oscLevel: 0, hold: 0, octave: 0,          // EXCITER tone layer (LEVEL 0 = the input only)
@@ -43,6 +44,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     this.fst = new Float64Array(8); this.fenv = 0; this.fstage = 0; this.fg = 0.1;
     this.events = []; this.peak = 0; this.cutFlash = 0;
     this.reportEvery = Math.round(sampleRate / 60); this.reportCount = 0;
+    this.rip = []; this.ripId = 0; this.lastPulse = null; this.tAbs = 0; this.prevSl = 0; this.prevDs = 0;   // RIPPLE trains, the last pulse (for COLLIDE)
     this.seq = null;   // STEP SEQUENCER: { on, steps: [{ on, pat ('' = the PATTERN dial), acc 0–1 }] × 32 }
     this.port.onmessage = (e) => this.onMessage(e.data);
   }
@@ -51,15 +53,16 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     if (!m) return;
     if (m.type === 'params') Object.assign(this.p, m.params);
     else if (m.type === 'seq') this.seq = m.seq;
-    else if (m.type === 'sync') { this.clock = 0; this.step = 0; this.pending.length = 0; }   // loop restarted: realign the grid
+    else if (m.type === 'sync') { this.clock = 0; this.step = 0; this.pending.length = 0; this.rip.length = 0; }   // loop restarted: realign the grid
     else if (m.type === 'on') { this.held = this.held.filter((n) => n !== m.note); this.held.push(m.note); this.spawn(0.95, 'note', m.note); }
     else if (m.type === 'off') this.held = this.held.filter((n) => n !== m.note);
-    else if (m.type === 'panic') { this.held = []; this.pending.length = 0; this.drops.forEach((d) => { d.active = false; }); }
+    else if (m.type === 'panic') { this.held = []; this.pending.length = 0; this.rip.length = 0; this.lastPulse = null; this.drops.forEach((d) => { d.active = false; }); }
   }
 
   // a new drip; its pitch follows the held key (if any) else the PITCH dial
-  spawn(size, kind, note, c3, flow) {   // c3: a 3D drip (sequencer step); flow: a CASCADE drip { gen, up, jit }
-    const p = this.p, sr = sampleRate, T = clamp(p.turb, 0, 1), C = clamp(p.cascade, 0, 1), raw = size;
+  spawn(size, kind, note, c3, flow) {   // c3: a 3D drip (sequencer step); flow: a CASCADE drip { gen, up, jit } or a RIPPLE pulse { rp, fm, jit, rg }
+    const p = this.p, sr = sampleRate, T = clamp(p.turb, 0, 1), C = clamp(p.cascade, 0, 1), R = clamp(p.ripple, 0, 1), raw = size;
+    const rp = !!(flow && flow.rp);
     // TURB: drips on the grid slip off it a little (pushed later, up to ~half a step)
     if (this.inStep && T > 0.001) { this.pending.push({ at: Math.max(1, Math.round(Math.random() * T * this.spbNow * 0.45)), size, kind, note, c3 }); return; }
     let d = this.drops.find((x) => !x.active);
@@ -72,7 +75,8 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     d.fc = clamp(p.cutoff * Math.pow(2, (n - 60) / 12 * clamp(p.key, 0, 1)), 30, sr * 0.45);
     let width = clamp(p.width, 0, 1); if ((p.pattern === '3d' || c3) && width < 0.8) width = 0.8;
     d.c3 = c3 ? 1 : 0;
-    if (flow) { d.jit = clamp(flow.jit + (Math.random() * 2 - 1) * 0.3, -1, 1); d.fc = clamp(d.fc * Math.pow(2, flow.up), 30, sr * 0.45); }   // a cascade: higher, near its parent
+    if (rp) { d.jit = clamp(flow.jit, -1, 1); d.fc = clamp(d.fc * flow.fm, 30, sr * 0.45); }   // a ripple pulse: where the ripple has spread to, at its pitch
+    else if (flow) { d.jit = clamp(flow.jit + (Math.random() * 2 - 1) * 0.3, -1, 1); d.fc = clamp(d.fc * Math.pow(2, flow.up), 30, sr * 0.45); }   // a cascade: higher, near its parent
     if (T > 0.001) { d.fc = clamp(d.fc * Math.pow(2, (Math.random() * 2 - 1) * T * 0.5), 30, sr * 0.45); d.jit = clamp(d.jit + (Math.random() * 2 - 1) * T * 0.6, -1, 1); }
     d.w = width; d.tw = 0; d.fm = 1;
     const angle = (clamp(d.jit * width, -1, 1) + 1) * 0.25 * Math.PI; d.gl = Math.cos(angle); d.gr = Math.sin(angle);
@@ -86,10 +90,37 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     this.fenv = 0; this.fstage = 1;                       // the filter envelope follows the drips
     if (this.events.length < 64) this.events.push({ x: clamp(0.5 + d.jit * width * 0.45, 0.03, 0.97), size, kind, note: n, sweep: p.sweep, chirp: p.chirp });
     // CASCADE: a drip can spill into a smaller, higher one, which can spill again
-    const gen = flow ? flow.gen : 0;
-    if (C > 0.001 && gen < 5 && raw >= 0.1 && Math.random() < C * (0.4 + 0.6 * Math.min(1, raw))) {
+    const gen = flow && !rp ? flow.gen : 0;
+    // RIPPLE: every drip (but not a ripple's own pulses) sends out a train of soft pulses
+    if (R > 0.001 && !rp && this.rip.length < 24) {
+      const gap = sr * (0.028 + Math.random() * 0.012);
+      this.rip.push({ t: gap, gap, amp: raw * (0.25 + 0.35 * R), fm: flow && flow.up ? Math.pow(2, flow.up) : 1, jit: d.jit, dir: d.jit >= 0 ? 1 : -1, n: 0, id: ++this.ripId, gen: 0 });
+    }
+    if (!rp && C > 0.001 && gen < 5 && raw >= 0.1 && Math.random() < C * (0.4 + 0.6 * Math.min(1, raw))) {
       const at = Math.round(Math.max(24, sr * (0.03 + Math.random() * 0.14) * (1.25 - C * 0.6))), cs = raw * (0.5 + Math.random() * 0.25), up = (flow ? flow.up : 0) + 0.15 + Math.random() * 0.3;
       this.pending.push({ at, size: cs, kind: 'stream', note: n, flow: { gen: gen + 1, up, jit: d.jit } });
+    }
+  }
+
+  // RIPPLE: each train pulses fast and soft, then slower, softer, a touch lower and further out, until it dies away.
+  // COLLIDE: a pulse that meets another train's pulse rings a harmonic of where they meet, which ripples in turn (always smaller).
+  ripTick(sr) {
+    const p = this.p, R = clamp(p.ripple, 0, 1), Cl = clamp(p.collide, 0, 1), W = sr * (0.012 + 0.04 * Cl);   // how close two ripples must meet
+    for (let j = this.rip.length - 1; j >= 0; j--) {
+      const q = this.rip[j];
+      q.t -= 1; if (q.t > 0) continue;
+      this.spawn(q.amp, 'stream', undefined, false, { rp: 1, fm: q.fm, jit: q.jit });
+      const lp = this.lastPulse;
+      if (Cl > 0.001 && lp && lp.id !== q.id && this.tAbs - lp.time < W && q.gen < 3) {
+        const ratio = COLL[(Math.random() * 3) | 0], a = Math.sqrt(q.amp * lp.amp) * (0.4 + 0.5 * Cl);
+        const fm = Math.sqrt(q.fm * lp.fm) * ratio, jit = (q.jit + lp.jit) * 0.5;
+        this.spawn(a, 'splash', undefined, false, { rp: 1, fm, jit });
+        if (R > 0.001 && this.rip.length < 24) { const gap = sr * (0.018 + Math.random() * 0.012); this.rip.push({ t: gap, gap, amp: a * 0.7, fm, jit, dir: jit >= 0 ? 1 : -1, n: 0, id: ++this.ripId, gen: q.gen + 1 }); }
+        this.lastPulse = null;
+      } else this.lastPulse = { time: this.tAbs, fm: q.fm, amp: q.amp, jit: q.jit, id: q.id };
+      q.n += 1; q.gap *= 1.28 + 0.1 * (1 - R); q.t = q.gap;
+      q.amp *= 0.55 + 0.25 * R; q.fm *= 0.985; q.jit = clamp(q.jit + q.dir * 0.12, -1, 1);
+      if (q.amp < 0.05 || q.n >= 12) this.rip.splice(j, 1);   // (new trains only ever join the end, so j is still this one)
     }
   }
 
@@ -169,6 +200,14 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     const S = clamp(p.slosh, 0, 1), T = clamp(p.turb, 0, 1);
     this.spbNow = spb;
     const sl = Math.sin(Math.PI * (this.step + this.clock / spb) / rate) * S; this.sl = sl;
+    {   // the body turning at the end of a sway hits the wall: a ripple runs back in from that side
+      const R = clamp(p.ripple, 0, 1), ds = sl - this.prevSl;
+      if (R > 0.001 && S > 0.001 && this.prevDs * ds < 0 && Math.abs(this.prevSl) > 0.25 * S && this.rip.length < 24) {
+        const side = this.prevSl > 0 ? 1 : -1;
+        this.rip.push({ t: 1, gap: sr * 0.03, amp: Math.abs(this.prevSl) * 0.45 * R, fm: 1, jit: side * 0.9, dir: -side, n: 0, id: ++this.ripId, gen: 1 });
+      }
+      this.prevDs = ds; this.prevSl = sl;
+    }
     for (const d of this.drops) {
       if (!d.active) continue;
       if (S > 0.001 || T > 0.001) {
@@ -184,6 +223,8 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
       this.clock += 1;
       if (this.clock >= spb) { this.clock -= spb; this.step += 1; this.inStep = true; this.onStep(this.step, spb); this.inStep = false; }
       for (let j = this.pending.length - 1; j >= 0; j--) { const q = this.pending[j]; if (--q.at <= 0) { this.pending.splice(j, 1); this.spawn(q.size, q.kind, q.note, q.c3, q.flow); } }
+      this.tAbs += 1;
+      if (this.rip.length) this.ripTick(sr);
       // the input's own hits
       const a = Math.abs(mono);
       this.fast += (a - this.fast) * (a > this.fast ? kFastA : kFastR);

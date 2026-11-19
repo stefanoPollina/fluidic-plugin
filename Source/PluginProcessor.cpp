@@ -79,7 +79,7 @@ FluidicProcessor::FluidicProcessor()
     pA = P ("amp.a"); pD = P ("amp.d"); pS = P ("amp.s"); pR = P ("amp.r"); pOut = P ("out.level");
     pDMix = P ("fx.delayMix"); pDTime = P ("fx.delayTime"); pDFb = P ("fx.delayFb"); pRMix = P ("fx.revMix"); rawRevSize = P ("fx.revSize");
     pRate = P ("rhy.rate"); pBpm = P ("rhy.bpm"); pSense = P ("rhy.sense"); pMix = P ("in.mix"); pChop = P ("in.chop"); pDrive = P ("in.drive"); pFollow = P ("in.follow");
-    pSlosh = P ("flow.slosh"); pSway = P ("flow.sway"); pTurb = P ("flow.turb"); pCasc = P ("flow.cascade");
+    pSlosh = P ("flow.slosh"); pSway = P ("flow.sway"); pTurb = P ("flow.turb"); pCasc = P ("flow.cascade"); pRipple = P ("flow.ripple"); pCollide = P ("flow.collide");
     uiState = isFx ? R"({"preset":"f:Drippiness"})" : R"({"preset":"f:Sine Meditation"})";
     engine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
     fxEngine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
@@ -210,7 +210,7 @@ void FluidicProcessor::readParams()
     p.fCut = v (pFCut); p.fRes = v (pFRes); p.fDrive = v (pFDrive); p.fEnv = v (pFEnv); p.fA = v (pFA); p.fD = v (pFD);
     p.fKey = v (pFKey); p.fRate = v (pFRate); p.fDepth = v (pFDepth);
     p.a = v (pA); p.d = v (pD); p.s = v (pS); p.r = v (pR); p.level = v (pOut);
-    p.slosh = v (pSlosh); p.sway = v (pSway); p.turb = v (pTurb); p.cascade = v (pCasc);   // FLOW
+    p.slosh = v (pSlosh); p.sway = v (pSway); p.turb = v (pTurb); p.cascade = v (pCasc); p.ripple = v (pRipple); p.collide = v (pCollide);   // FLOW
     if (isFx)
     {
         auto& q = fxEngine.params();
@@ -223,7 +223,7 @@ void FluidicProcessor::readParams()
         q.fRate = p.fRate; q.fDepth = p.fDepth; q.level = p.level;
         q.wave = p.wave; q.oscLevel = p.oscLevel; q.hold = p.hold; q.octave = p.octave;   // tone layer
         q.a = p.a; q.d = p.d; q.s = p.s; q.r = p.r; q.fKey = p.fKey;                     // AMP per drip, filter KEY
-        q.slosh = p.slosh; q.turb = p.turb; q.cascade = p.cascade;                      // FLOW (sways with the beat)
+        q.slosh = p.slosh; q.turb = p.turb; q.cascade = p.cascade; q.ripple = p.ripple; q.collide = p.collide;                      // FLOW (sways with the beat)
     }
     FxParams f;
     f.delayMix = v (pDMix); f.delayTime = v (pDTime); f.delayFb = v (pDFb); f.revMix = v (pRMix); f.revSize = v (rawRevSize);

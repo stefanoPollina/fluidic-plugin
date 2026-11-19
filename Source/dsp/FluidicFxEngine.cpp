@@ -22,13 +22,13 @@ inline void svf (std::array<double, 8>& st, int o, double x, double g, double k,
 
 void FluidicFxEngine::prepare (double sampleRate)
 {
-    sr = sampleRate; events.reserve (128); pending.reserve (64); held.reserve (16);
+    sr = sampleRate; events.reserve (128); pending.reserve (64); held.reserve (16); rip.reserve (32);
     panic(); sync(); fast = slow = lvl = refractory = gate = 0; fst.fill (0); fenv = 0; fstage = 0;
 }
 
 int FluidicFxEngine::activeDrops() const { int n = 0; for (auto& d : drops) n += d.active ? 1 : 0; return n; }
 
-void FluidicFxEngine::panic() { held.clear(); pending.clear(); for (auto& d : drops) d.active = false; }
+void FluidicFxEngine::panic() { held.clear(); pending.clear(); rip.clear(); hasLast = false; for (auto& d : drops) d.active = false; }
 
 void FluidicFxEngine::noteOn (int note)
 {
@@ -59,7 +59,8 @@ void FluidicFxEngine::setGridPosition (double stepsFromStart)
 
 void FluidicFxEngine::spawn (double size, DropKind kind, int note, bool c3, const Flow* flow)
 {
-    const double T = clampd (p.turb, 0, 1), C = clampd (p.cascade, 0, 1), raw = size;
+    const double T = clampd (p.turb, 0, 1), C = clampd (p.cascade, 0, 1), R = clampd (p.ripple, 0, 1), raw = size;
+    const bool rp = flow != nullptr && flow->rp;
     // TURB: drips on the grid slip off it a little (pushed later, up to ~half a step)
     if (inStep && T > 0.001) { Pending q { std::max (1.0, (double) std::llround (rng.next() * T * spbNow * 0.45)), size, kind }; q.note = note; q.c3 = c3; pending.push_back (q); return; }
     Drop* d = nullptr;
@@ -74,7 +75,8 @@ void FluidicFxEngine::spawn (double size, DropKind kind, int note, bool c3, cons
     d->fc = clampd (p.cutoff * std::pow (2.0, (n - 60) / 12.0 * clampd (p.key, 0, 1)), 30, sr * 0.45);
     double width = clampd (p.width, 0, 1); if ((p.pattern == Pattern::threeD || c3) && width < 0.8) width = 0.8;
     d->c3 = c3;
-    if (flow != nullptr) { d->jit = clampd (flow->jit + (rng.next() * 2 - 1) * 0.3, -1, 1); d->fc = clampd (d->fc * std::pow (2.0, flow->up), 30, sr * 0.45); }   // a cascade: higher, near its parent
+    if (rp) { d->jit = clampd (flow->jit, -1, 1); d->fc = clampd (d->fc * flow->fm, 30, sr * 0.45); }   // a ripple pulse: where the ripple has spread to, at its pitch
+    else if (flow != nullptr) { d->jit = clampd (flow->jit + (rng.next() * 2 - 1) * 0.3, -1, 1); d->fc = clampd (d->fc * std::pow (2.0, flow->up), 30, sr * 0.45); }   // a cascade: higher, near its parent
     if (T > 0.001) { const double a = rng.next(); d->fc = clampd (d->fc * std::pow (2.0, (a * 2 - 1) * T * 0.5), 30, sr * 0.45); const double b = rng.next(); d->jit = clampd (d->jit + (b * 2 - 1) * T * 0.6, -1, 1); }
     d->w = width; d->tw = 0; d->fm = 1;
     const double angle = (clampd (d->jit * width, -1, 1) + 1) * 0.25 * PI; d->gl = std::cos (angle); d->gr = std::sin (angle);
@@ -88,14 +90,48 @@ void FluidicFxEngine::spawn (double size, DropKind kind, int note, bool c3, cons
     fenv = 0; fstage = 1;
     if (events.size() < 64) events.push_back ({ (float) clampd (0.5 + d->jit * width * 0.45, 0.03, 0.97), (float) size, kind, n, (float) p.sweep, (float) p.chirp });
     // CASCADE: a drip can spill into a smaller, higher one, which can spill again
-    const int gen = flow != nullptr ? flow->gen : 0;
-    if (C > 0.001 && gen < 5 && raw >= 0.1 && rng.next() < C * (0.4 + 0.6 * std::min (1.0, raw)))
+    const int gen = flow != nullptr && ! rp ? flow->gen : 0;
+    // RIPPLE: every drip (but not a ripple's own pulses) sends out a train of soft pulses
+    if (R > 0.001 && ! rp && rip.size() < 24)
+    {
+        const double gap = sr * (0.028 + rng.next() * 0.012);
+        rip.push_back ({ gap, gap, raw * (0.25 + 0.35 * R), (flow != nullptr && flow->up != 0) ? std::pow (2.0, flow->up) : 1.0, d->jit, d->jit >= 0 ? 1.0 : -1.0, 0, ++ripId, 0 });
+    }
+    if (! rp && C > 0.001 && gen < 5 && raw >= 0.1 && rng.next() < C * (0.4 + 0.6 * std::min (1.0, raw)))
     {
         const double at = (double) std::llround (std::max (24.0, sr * (0.03 + rng.next() * 0.14) * (1.25 - C * 0.6)));
         const double cs = raw * (0.5 + rng.next() * 0.25);
         const double up = (flow != nullptr ? flow->up : 0) + 0.15 + rng.next() * 0.3;
         Pending q { at, cs, DropKind::stream }; q.note = n; q.hasFlow = true; q.flow = { gen + 1, up, d->jit };
         pending.push_back (q);
+    }
+}
+
+// RIPPLE: each train pulses fast and soft, then slower, softer, a touch lower and further out, until it dies away.
+// COLLIDE: a pulse that meets another train's pulse rings a harmonic of where they meet, which ripples in turn (always smaller).
+void FluidicFxEngine::ripTick()
+{
+    static constexpr double COLL[] = { 1.5, 2, 1.25 };
+    const double R = clampd (p.ripple, 0, 1), Cl = clampd (p.collide, 0, 1), W = sr * (0.012 + 0.04 * Cl);   // how close two ripples must meet
+    for (int j = (int) rip.size() - 1; j >= 0; --j)
+    {
+        rip[(size_t) j].t -= 1; if (rip[(size_t) j].t > 0) continue;
+        { Flow f; f.rp = true; f.fm = rip[(size_t) j].fm; f.jit = rip[(size_t) j].jit; spawn (rip[(size_t) j].amp, DropKind::stream, -1, false, &f); }
+        Ripple& q = rip[(size_t) j];
+        if (Cl > 0.001 && hasLast && lastPulse.id != q.id && (double) (tAbs - lastPulse.time) < W && q.gen < 3)
+        {
+            const double ratio = COLL[(int) (rng.next() * 3)], a = std::sqrt (q.amp * lastPulse.amp) * (0.4 + 0.5 * Cl);
+            const double fm = std::sqrt (q.fm * lastPulse.fm) * ratio, jit = (q.jit + lastPulse.jit) * 0.5;
+            const int qgen = q.gen;
+            { Flow f; f.rp = true; f.fm = fm; f.jit = jit; spawn (a, DropKind::splash, -1, false, &f); }
+            if (R > 0.001 && rip.size() < 24) { const double gap = sr * (0.018 + rng.next() * 0.012); rip.push_back ({ gap, gap, a * 0.7, fm, jit, jit >= 0 ? 1.0 : -1.0, 0, ++ripId, qgen + 1 }); }
+            hasLast = false;
+        }
+        else { hasLast = true; lastPulse = { tAbs, rip[(size_t) j].fm, rip[(size_t) j].amp, rip[(size_t) j].jit, rip[(size_t) j].id }; }
+        Ripple& r = rip[(size_t) j];   // (push_back may have moved it)
+        r.n += 1; r.gap *= 1.28 + 0.1 * (1 - R); r.t = r.gap;
+        r.amp *= 0.55 + 0.25 * R; r.fm *= 0.985; r.jit = clampd (r.jit + r.dir * 0.12, -1, 1);
+        if (r.amp < 0.05 || r.n >= 12) rip.erase (rip.begin() + j);   // (new trains only ever join the end)
     }
 }
 
@@ -195,6 +231,15 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
     const double S = clampd (p.slosh, 0, 1), T = clampd (p.turb, 0, 1);
     spbNow = spb;
     sl = std::sin (PI * (step + clock / spb) / rate) * S;
+    {   // the body turning at the end of a sway hits the wall: a ripple runs back in from that side
+        const double R = clampd (p.ripple, 0, 1), ds = sl - prevSl;
+        if (R > 0.001 && S > 0.001 && prevDs * ds < 0 && std::abs (prevSl) > 0.25 * S && rip.size() < 24)
+        {
+            const double side = prevSl > 0 ? 1 : -1;
+            rip.push_back ({ 1, sr * 0.03, std::abs (prevSl) * 0.45 * R, 1, side * 0.9, -side, 0, ++ripId, 1 });
+        }
+        prevDs = ds; prevSl = sl;
+    }
     for (auto& d : drops)
     {
         if (! d.active) continue;
@@ -220,6 +265,8 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
             auto& q = pending[(size_t) j];
             if (--q.at <= 0) { const Pending pq = q; pending.erase (pending.begin() + j); spawn (pq.size, pq.kind, pq.note, pq.c3, pq.hasFlow ? &pq.flow : nullptr); }
         }
+        tAbs += 1;
+        if (! rip.empty()) ripTick();
         const double a = std::abs (mono);
         fast += (a - fast) * (a > fast ? kFastA : kFastR);
         slow += (a - slow) * (a > slow ? kSlowA : kSlowR);

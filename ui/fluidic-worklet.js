@@ -3,6 +3,7 @@
    Every drop the engine fires is reported to the page so the visualiser shows exactly what you hear. */
 'use strict';
 const TAU = Math.PI * 2;
+const COLL = [1.5, 2, 1.25];   // COLLIDE: two ripples meeting ring a fifth, an octave or a major third above where they meet
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const wrap01 = (x) => { x -= Math.floor(x); return x < 0 ? x + 1 : x; };
 const MAX_VOICES = 12;
@@ -14,7 +15,7 @@ const DEFAULTS = {
   chirp: 0, width: 0, density: 0.5, size: 0.5, edge: 0,
   fType: 'off', fCut: 2400, fRes: 0.25, fDrive: 0, fKey: 0.5, fEnv: 0, fA: 0.01, fD: 0.6, fRate: 0.15, fDepth: 0,
   a: 0.004, d: 0.4, s: 0.7, r: 0.5, level: 0.8,
-  slosh: 0, sway: 0.5, turb: 0, cascade: 0              // FLOW: the water as one body (0 = off)
+  slosh: 0, sway: 0.5, turb: 0, cascade: 0, ripple: 0, collide: 0   // FLOW: the water as one body (0 = off)
 };
 // post-drip filter: a zero-delay-feedback state-variable filter per voice, stereo, with an optional second stage for 24 dB
 function svf(st, o, x, g, k) {
@@ -32,6 +33,7 @@ function makeVoice() {
     dripT0: 0, dripWait: 0, dripAge: 1e9, dripHit: 0, dripSize: 0.5, dripJit: 0, dripRatio: 0, dripAmp: 0, dripRate: 1,
     dripPh: 0, dripKick: 0, splashN: 0, stW: 0, spW: 0, dripKind: 1, dGuard: 1, dgLvl: 0,
     tw: 0, cascW: 0, cascN: 0, cascSize: 0, cascOn: 0,   // FLOW: turbulence walk, the next cascade drip
+    ripT: 0, ripGap: 0, ripAmp: 0, ripN: 0, ripDir: 1, hm: 1,   // RIPPLE train on this voice; hm: pitch × (ripples sink, collisions ring harmonics)
     dripDelay: new Float32Array(32), dripDPos: 0,
     noise: new Float32Array(64), pk: [0, 0, 0],
     fst: new Float64Array(8), fenv: 0, fstage: 0, fg: 0.1,
@@ -47,6 +49,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
     this.queue = [];
     this.events = [];            // drops fired since the last report
     this.peak = 0; this.cutFlash = 0; this.lfoPh = 0; this.sloshPh = 0; this.sl = 0;
+    this.tAbs = 0; this.lastPulse = null; this.prevSl = 0; this.prevDs = 0;   // RIPPLE / COLLIDE
     this.reportEvery = Math.round(sampleRate / 60);
     this.stealK = 1 - Math.exp(-1 / (0.0006 * sampleRate));
     this.reportCount = 0;
@@ -74,7 +77,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
 
   startVoice(v, note, vel) {
     const wasIdle = !v.active;
-    Object.assign(v, { active: true, id: note, note, vel, gate: true, age: 0, stage: 'attack', dripKick: 1, dripAge: 1e9, dGuard: 1, dgLvl: 0, tw: 0, cascW: 0, cascN: 0, cascOn: 0 });
+    Object.assign(v, { active: true, id: note, note, vel, gate: true, age: 0, stage: 'attack', dripKick: 1, dripAge: 1e9, dGuard: 1, dgLvl: 0, tw: 0, cascW: 0, cascN: 0, cascOn: 0, ripT: 0, hm: 1 });
     v.ic1 = v.ic2 = v.ic1b = v.ic2b = 0;
     v.fenv = 0; v.fstage = 1; if (wasIdle) v.fst.fill(0);
     if (!Number.isFinite(v.fst[0] + v.fst[1] + v.fst[2] + v.fst[3] + v.fst[4] + v.fst[5] + v.fst[6] + v.fst[7])) v.fst.fill(0);
@@ -94,6 +97,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
 
   // FLOW at each drip's birth: TURB knocks its timing and pitch about; CASCADE may queue a smaller, higher drip after it
   flowBirth(v, size, T, C, sr) {
+    v.hm = 1; this.rippleStart(v, size, sr);
     if (T > 0.001) {
       v.dripWait *= 1 + (Math.random() * 2 - 1) * T * 0.7; if (v.dripWait < 12) v.dripWait = 12;
       v.dripJit = clamp(v.dripJit + (Math.random() * 2 - 1) * T * 0.8, -1.8, 1.8);
@@ -104,6 +108,30 @@ class FluidicProcessor extends AudioWorkletProcessor {
     if (C > 0.001 && v.cascN < 5 && size >= 0.1 && Math.random() < C * (0.4 + 0.6 * Math.min(1, size))) {
       v.cascW = Math.max(24, sr * (0.03 + Math.random() * 0.14) * (1.25 - C * 0.6)); v.cascSize = size * (0.5 + Math.random() * 0.25); v.cascN += 1;
     }
+  }
+
+  // RIPPLE: a drip sends out a train of soft pulses that re-ring its voice: fast and gentle, then slower, softer, lower, wider
+  rippleStart(v, size, sr) {
+    const R = clamp(this.p.ripple, 0, 1);
+    if (R <= 0.001) return;
+    v.ripGap = sr * (0.028 + Math.random() * 0.012); v.ripT = v.ripGap; v.ripAmp = size * (0.25 + 0.35 * R); v.ripN = 0; v.ripDir = v.dripJit >= 0 ? 1 : -1;
+  }
+  ripPulse(v, vi, sr) {
+    const p = this.p, R = clamp(p.ripple, 0, 1), Cl = clamp(p.collide, 0, 1), W = sr * (0.012 + 0.04 * Cl);
+    v.dripAge = 0; v.dripHit = 3; v.dripSize = v.ripAmp; v.cascOn = 1;
+    v.dripJit = clamp(v.dripJit + v.ripDir * 0.12, -1.8, 1.8); v.hm *= 0.985;
+    this.drop(v, v.dripSize, 'stream');
+    // COLLIDE: meeting another voice's ripple rings that voice at a harmonic of where they meet, and it ripples in turn (smaller)
+    const lp = this.lastPulse;
+    if (Cl > 0.001 && lp && lp.vi !== vi && this.tAbs - lp.time < W && this.voices[lp.vi].active) {
+      const o = this.voices[lp.vi], ratio = COLL[(Math.random() * 3) | 0], a = Math.sqrt(v.ripAmp * lp.amp) * (0.4 + 0.5 * Cl);
+      o.dripAge = 0; o.dripHit = 3; o.dripSize = a; o.cascOn = 1; o.hm = clamp(Math.sqrt(v.hm * lp.hm) * ratio, 0.25, 4);
+      this.drop(o, a, 'splash');
+      if (R > 0.001) { o.ripGap = sr * (0.018 + Math.random() * 0.012); o.ripT = o.ripGap; o.ripAmp = a * 0.7; o.ripN = 0; o.ripDir = -v.ripDir; }
+      this.lastPulse = null;
+    } else this.lastPulse = { time: this.tAbs, vi, amp: v.ripAmp, hm: v.hm };
+    v.ripN += 1; v.ripGap *= 1.28 + 0.1 * (1 - R); v.ripAmp *= 0.55 + 0.25 * R;
+    v.ripT = v.ripAmp < 0.05 || v.ripN >= 12 ? 0 : v.ripGap;
   }
 
   drop(v, size, kind) {          // report a drop to the visualiser (x: 0..1 across the stereo field)
@@ -174,6 +202,15 @@ class FluidicProcessor extends AudioWorkletProcessor {
     const S = clamp(p.slosh, 0, 1), T = clamp(p.turb, 0, 1), C = clamp(p.cascade, 0, 1);
     this.sloshPh = wrap01(this.sloshPh + clamp(p.sway, 0.02, 8) * n / sr);
     const sl = Math.sin(TAU * this.sloshPh) * S; this.sl = sl;
+    {   // the body turning at the end of a sway hits the wall: the voice nearest that side ripples back in
+      const R = clamp(p.ripple, 0, 1), ds = sl - this.prevSl;
+      if (R > 0.001 && S > 0.001 && this.prevDs * ds < 0 && Math.abs(this.prevSl) > 0.25 * S) {
+        const side = this.prevSl > 0 ? 1 : -1;
+        let best = null; for (const v of this.voices) if (v.active && (!best || v.pan * side > best.pan * side)) best = v;
+        if (best) { best.ripGap = sr * 0.03; best.ripT = 1; best.ripAmp = Math.abs(this.prevSl) * 0.45 * R; best.ripN = 0; best.ripDir = -side; }
+      }
+      this.prevDs = ds; this.prevSl = sl;
+    }
     for (const v of this.voices) {
       if (!v.active) continue;
       v.fc = clamp(p.cutoff * Math.pow(2, (v.note - 60) / 12 * p.key), 30, sr * 0.45);
@@ -186,9 +223,11 @@ class FluidicProcessor extends AudioWorkletProcessor {
 
     for (let i = 0; i < n; i++) {
       let busL = 0, busR = 0;
+      this.tAbs += 1;
       this.lfoPh += lfoInc; if (this.lfoPh >= 1) this.lfoPh -= 1;
       const lfo = Math.sin(this.lfoPh * TAU);
-      for (const v of this.voices) {
+      for (let vi = 0; vi < this.voices.length; vi++) {
+        const v = this.voices[vi];
         if (!v.active) continue;
         const env = this.env(v, ka, kd, kr);
         if (!v.active) continue;
@@ -252,8 +291,10 @@ class FluidicProcessor extends AudioWorkletProcessor {
             v.dripJit = clamp(v.dripJit + 0.25 + Math.random() * 0.35, -1.8, 1.8);
             this.drop(v, v.dripSize, 'stream');
             this.cascadeFrom(v, v.dripSize, C, sr);
+            this.rippleStart(v, v.dripSize, sr);
           }
         }
+        if (v.ripT > 0) { v.ripT -= 1; if (v.ripT <= 0) this.ripPulse(v, vi, sr); }
         if (v.dripHit > 0) v.dripHit -= 1;
         v.dripAge += 1;
 
@@ -280,7 +321,7 @@ class FluidicProcessor extends AudioWorkletProcessor {
           wobble = Math.sin(TAU * v.dripPh) * wob * 0.28;
           dripRatio = 1.51;
         }
-        const fc = clamp(swept * (1 + wobble), 32, sr * 0.45);
+        const fc = clamp(swept * (1 + wobble) * v.hm, 32, sr * 0.45);
         v.dripPh = wrap01(v.dripPh + (fc * (0.42 + dripRes * 0.5) * (dripMode === 'rain' ? v.dripRate : 1)) / sr);
         const g = Math.tan(Math.PI * fc / sr), k = 1 / dripQ, a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
         const gb = Math.tan(Math.PI * clamp(fc * dripRatio, 40, sr * 0.45) / sr), kb = 1 / Math.max(1.6, dripQ * 0.62);

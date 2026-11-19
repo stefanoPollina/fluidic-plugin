@@ -15,7 +15,7 @@ struct FxEngineParams
     double cutoff = 900, res = 0.8, ping = 0.6, sweep = 2.2, fall = 0.08, bubble = 0.55, wobble = 0.3;
     double chirp = 0, width = 0.4, size = 0.5, edge = 0, key = 1;
     double mix = 0.5, chop = 0, drive = 1, follow = 1;   // FOLLOW: drips only while the input has sound
-    double slosh = 0, turb = 0, cascade = 0;             // FLOW: the water as one body (0 = off)
+    double slosh = 0, turb = 0, cascade = 0, ripple = 0, collide = 0;   // FLOW: the water as one body (0 = off)
     FilterType fType = FilterType::off;
     double fCut = 2400, fRes = 0.25, fDrive = 0, fEnv = 0, fA = 0.005, fD = 0.25, fRate = 0.15, fDepth = 0;
     double level = 0.8;
@@ -38,7 +38,7 @@ public:
     void noteOn (int note);      // keys / MIDI: a drip at that pitch, and later drips follow the held key
     void noteOff (int note);
     void panic();
-    void sync() { clock = 0; step = 0; pending.clear(); }
+    void sync() { clock = 0; step = 0; pending.clear(); rip.clear(); }
     // host transport: put the grid at this position (in grid steps since the song start)
     void setGridPosition (double stepsFromStart);
     // host transport stopped: the grid stops dropping (drips already falling ring out); the next play start
@@ -63,7 +63,11 @@ private:
         bool c3 = false;   // a 3D drip from a sequencer step
         double fm = 1, tw = 0, w = 0;   // FLOW: pitch push (slosh + turbulence), its random walk, width at birth
     };
-    struct Flow { int gen = 0; double up = 0, jit = 0; };   // a CASCADE drip: generation, octaves up, parent's place
+    struct Flow { int gen = 0; double up = 0, jit = 0; bool rp = false; double fm = 1; };   // a CASCADE drip (generation, octaves up, parent's place) or a RIPPLE pulse (rp: pitch × fm, at jit)
+    struct Ripple { double t, gap, amp, fm, jit, dir; int n; long long id; int gen; };   // a RIPPLE train
+    struct Pulse { long long time; double fm, amp, jit; long long id; };
+    std::vector<Ripple> rip; long long ripId = 0, tAbs = 0; bool hasLast = false; Pulse lastPulse {}; double prevSl = 0, prevDs = 0;
+    void ripTick();
     struct Pending { double at; double size; DropKind kind; int note = -1; bool c3 = false; bool hasFlow = false; Flow flow {}; };
 
     void spawn (double size, DropKind kind, int note = -1, bool c3 = false, const Flow* flow = nullptr);

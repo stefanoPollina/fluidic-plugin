@@ -49,7 +49,7 @@
   .rack .rhypanel { grid-column: 3 / 4; }
   .rack .flowpanel { grid-column: 1 / -1; }
   .fx-mode .rack .flowpanel { grid-column: 4 / 5; }
-  .rack .flowpanel .krow { margin-top: auto; }
+  .rack .flowpanel .krow:first-of-type { margin-top: auto; }
   .rack .panel.inpanel { display: grid; grid-template-columns: 230px 1fr auto; grid-template-rows: auto auto auto; column-gap: 14px; row-gap: 6px; align-items: center; }
   .rack .panel.inpanel > h3 { grid-column: 1 / -1; }
   .rack .panel.inpanel > .segs { grid-column: 1; grid-row: 2; }
@@ -349,7 +349,10 @@ const Fluidic = (() => {
     { id: 'flow.slosh', name: 'Slosh', label: 'SLOSH', eng: 'slosh', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) },
     { id: 'flow.sway', name: 'Slosh sway rate', label: 'SWAY', eng: 'sway', min: 0.05, max: 6, log: true, def: 0.5, fmt: (v) => (v < 1 ? v.toFixed(2) : v.toFixed(1)) + 'Hz', synthOnly: true },
     { id: 'flow.turb', name: 'Turbulence', label: 'TURB', eng: 'turb', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) },
-    { id: 'flow.cascade', name: 'Cascade', label: 'CASCADE', eng: 'cascade', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) }
+    { id: 'flow.cascade', name: 'Cascade', label: 'CASCADE', eng: 'cascade', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) },
+    // RIPPLE: each drip sends out soft pulses, fast then slowing as they fade and spread; COLLIDE: ripples that meet ring a harmonic, which ripples again
+    { id: 'flow.ripple', name: 'Ripple', label: 'RIPPLE', eng: 'ripple', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) },
+    { id: 'flow.collide', name: 'Collide', label: 'COLLIDE', eng: 'collide', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)) }
   ];
   // the synth's own sound sources and envelope have no meaning in the effect
   // in FLUIDIC FX these start neutral, so the effect sounds as designed until you reach for them
@@ -417,7 +420,7 @@ const Fluidic = (() => {
     'amp.a': [0.001, 0.8], 'amp.d': [0.08, 2], 'amp.s': [0.2, 1], 'amp.r': [0.15, 3],
     'fx.delayMix': [0, 0.4], 'fx.delayTime': [0.12, 0.6], 'fx.delayFb': [0.1, 0.6], 'fx.revMix': [0.08, 0.6], 'fx.revSize': [1, 7],
     'in.drive': [0.7, 1.8], 'in.mix': [0.35, 0.8], 'in.chop': [0, 0.8], 'rhy.sense': [0, 0.6],
-    'flow.slosh': [0, 0.6], 'flow.sway': [0.15, 1.5], 'flow.turb': [0, 0.5], 'flow.cascade': [0, 0.6]
+    'flow.slosh': [0, 0.6], 'flow.sway': [0.15, 1.5], 'flow.turb': [0, 0.5], 'flow.cascade': [0, 0.6], 'flow.ripple': [0, 0.7], 'flow.collide': [0, 0.7]
   };
   const SAFE_ENUM = { 'rhy.rate': ['2', '4', '4', '8'], 'drip.pattern': ['even', 'rain', 'both', '3d', 'splash', 'stream'], 'filt.type': ['off', 'lp', 'lp', 'lp24', 'lp24', 'hp', 'bp', 'notch'] };
   const DICE_POOL = PARAMS.map((p) => p.id).filter((id) => id !== 'out.level' && id !== 'drip.edge' && id !== 'rhy.bpm' && id !== 'in.follow');   // tempo and FOLLOW stay yours too
@@ -909,7 +912,8 @@ const Fluidic = (() => {
     // FLOW: the water as one body
     const pFlow = el('section', 'panel flowpanel'); pFlow.dataset.sec = 'flow';
     const flh = el('h3', '', 'FLOW'); flh.append(el('span', '', FX ? 'SWAYS WITH THE BEAT' : 'THE WATER AS ONE BODY')); pFlow.append(flh);
-    krow(pFlow, 'WATER', FX ? ['flow.slosh', 'flow.turb', 'flow.cascade'] : ['flow.slosh', 'flow.sway', 'flow.turb', 'flow.cascade']);
+    if (FX) { krow(pFlow, 'BODY', ['flow.slosh', 'flow.turb', 'flow.cascade']); krow(pFlow, 'RIPPLE', ['flow.ripple', 'flow.collide']); }
+    else krow(pFlow, 'WATER', ['flow.slosh', 'flow.sway', 'flow.turb', 'flow.cascade', 'flow.ripple', 'flow.collide']);
     rack.append(pExc, pDrip, pFilt, pAmp, pFx);
     if (FX) rack.append(pIn, pRhy, pFlow); else rack.append(pFlow);   // the effect's own row: what comes in, and the grid it drops on
     mid.append(rack);
