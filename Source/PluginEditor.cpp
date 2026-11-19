@@ -193,6 +193,18 @@ void FluidicEditor::timerCallback()
     }
     auto* fr = new juce::DynamicObject();
     fr->setProperty ("events", evs); fr->setProperty ("peak", f.peak); fr->setProperty ("cut", f.cut); fr->setProperty ("voices", f.voices);
-    if (f.step >= 0) fr->setProperty ("step", (juce::int64) f.step);   // FLUIDIC FX: auto-roll follows the grid
+    if (f.step >= 0) fr->setProperty ("step", (juce::int64) f.step);
+    if (FluidicProcessor::isFx)   // FLUIDIC FX: the plugin rolls the dice; the page shows where and what
+    {
+        auto* au = new juce::DynamicObject();
+        au->setProperty ("pos", f.autoPos); au->setProperty ("mask", juce::String (f.autoMask));
+        fr->setProperty ("auto", juce::var (au));
+        if (! f.rolls.empty())
+        {
+            juce::Array<juce::var> rs;
+            for (auto& r : f.rolls) { auto* o = new juce::DynamicObject(); o->setProperty ("label", juce::String (r.label)); o->setProperty ("n", r.n); rs.add (juce::var (o)); }
+            fr->setProperty ("rolls", rs);
+        }
+    }
     browser->emitEventIfBrowserIsVisible ("frame", juce::var (fr));
 }

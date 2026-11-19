@@ -23,7 +23,7 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
-set(FLUIDIC_DSP Source/dsp/FluidicEngine.cpp Source/dsp/FluidicFxEngine.cpp Source/dsp/FxBus.cpp)
+set(FLUIDIC_DSP Source/dsp/FluidicEngine.cpp Source/dsp/FluidicFxEngine.cpp Source/dsp/FxBus.cpp Source/DiceRoller.cpp)
 
 if(FLUIDIC_BUILD_PLUGIN)
     if(WIN32)

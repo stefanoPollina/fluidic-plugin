@@ -82,7 +82,69 @@ FluidicProcessor::FluidicProcessor()
     uiState = isFx ? R"({"preset":"f:Drippiness"})" : R"({"preset":"f:Sine Meditation"})";
     engine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
     fxEngine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
-    startTimerHz (20);
+    if (isFx)
+    {
+        std::vector<std::string> mine;
+        for (auto& s : paramTable()) if (apvts.getParameter (s.id) != nullptr) mine.push_back (s.id);
+        dice = std::make_unique<DiceRoller> (mine, true, (uint32_t) juce::Random::getSystemRandom().nextInt());
+    }
+    setUiState (uiState);
+    startTimerHz (60);
+}
+
+namespace
+{
+// the window's saved state → AUTO ROLL settings and HOLDs (same JSON the page writes)
+AutoConfig parseAuto (const juce::String& json)
+{
+    AutoConfig c;
+    const auto v = juce::JSON::parse (json);
+    if (const auto a = v["auto"]; a.isObject())
+    {
+        c.on = (bool) a["on"];
+        if (a["die"].isString()) c.die = a["die"].toString().toStdString();
+        if (a["mode"].isString()) c.mode = a["mode"].toString().toStdString();
+        if (a["mask"].isString()) c.customMask = a["mask"].toString().toStdString();
+        c.holdRate = (bool) a["holdRate"]; c.holdPattern = (bool) a["holdPattern"];
+    }
+    if (const auto h = v["holds"]; h.isObject())
+    {
+        if (auto* s = h["secs"].getArray()) for (auto& x : *s) c.holdSecs.insert (x.toString().toStdString());
+        if (auto* s = h["ids"].getArray()) for (auto& x : *s) c.holdIds.insert (x.toString().toStdString());
+    }
+    return c;
+}
+} // namespace
+
+void FluidicProcessor::setUiState (const juce::String& s)
+{
+    const juce::ScopedLock l (uiLock);
+    uiState = s;
+    if (isFx) { pendingAuto = parseAuto (s); autoDirty = true; }
+}
+
+void FluidicProcessor::runAutoRoll()
+{
+    if (dice == nullptr) return;
+    {
+        const juce::ScopedLock l (uiLock);
+        if (autoDirty) { dice->setConfig (pendingAuto); autoDirty = false; }
+    }
+    const long long k = gridStep.load();
+    if (k < 0) return;
+    auto get = [this] (const std::string& id) -> float
+    {
+        auto* p = apvts.getParameter (id); return p != nullptr ? p->convertFrom0to1 (p->getValue()) : 0.0f;
+    };
+    auto set = [this] (const std::string& id, float v)
+    {
+        if (auto* p = apvts.getParameter (id))   // one gesture per change, like a dial the page turns once
+        {
+            p->beginChangeGesture(); p->setValueNotifyingHost (p->convertTo0to1 (v)); p->endChangeGesture();
+        }
+    };
+    dice->onGridStep (k, get, set);
+    for (auto& n : dice->takeNotices()) if (rollNotices.size() < 32) rollNotices.push_back (n);
 }
 
 FluidicProcessor::~FluidicProcessor() { stopTimer(); }
@@ -218,6 +280,11 @@ FluidicProcessor::Frame FluidicProcessor::takeFrame()
     for (int i = 0; i < r.blockSize1; ++i) f.events.push_back (dropBuf[(size_t) (r.startIndex1 + i)]);
     for (int i = 0; i < r.blockSize2; ++i) f.events.push_back (dropBuf[(size_t) (r.startIndex2 + i)]);
     f.peak = peak.load(); f.cut = cut.exchange (false); f.voices = voices.load(); f.step = gridStep.load();
+    if (dice != nullptr)   // same thread as the auto-roll (message thread)
+    {
+        f.rolls = std::move (rollNotices); rollNotices.clear();
+        f.autoPos = dice->config().on ? dice->position() : -1; f.autoMask = dice->maskString();
+    }
     return f;
 }
 
@@ -230,12 +297,13 @@ void FluidicProcessor::addUiNote (int note, float velocity, bool on)
 
 void FluidicProcessor::timerCallback()
 {
-    // Reverb SIZE: rebuild the impulse once the dial has settled (~160 ms), as the prototype does
     if (! prepared) return;
+    runAutoRoll();
+    // Reverb SIZE: rebuild the impulse once the dial has settled (~160 ms), as the prototype does
     const double want = rawRevSize->load();
     if (std::abs (want - fx.loadedReverbSize()) < 1e-4) { pendingRevSize = -1; return; }
     if (std::abs (want - pendingRevSize) > 1e-4) { pendingRevSize = want; revStableTicks = 0; return; }
-    if (++revStableTicks >= 3) { fx.loadReverb (want, (uint32_t) juce::Random::getSystemRandom().nextInt()); pendingRevSize = -1; }
+    if (++revStableTicks >= 9) { fx.loadReverb (want, (uint32_t) juce::Random::getSystemRandom().nextInt()); pendingRevSize = -1; }
 }
 
 void FluidicProcessor::getStateInformation (juce::MemoryBlock& dest)

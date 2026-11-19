@@ -5,6 +5,7 @@
 #include "dsp/FluidicFxEngine.h"
 #include "dsp/FxBus.h"
 #include "ParamTable.h"
+#include "DiceRoller.h"
 
 // Built twice from the same sources: FLUIDIC (instrument) and FLUIDIC FX (audio effect, FLUIDIC_IS_FX=1).
 #ifndef FLUIDIC_IS_FX
@@ -50,16 +51,18 @@ public:
     // ---- used by the editor (message thread) ----
     void addUiNote (int note, float velocity, bool on);   // on-screen / computer keyboard
     void requestPanic() { panicRequested = true; }
-    struct Frame { std::vector<fluidic::DropEvent> events; float peak = 0; bool cut = false; int voices = 0; long long step = -1; };
+    struct Frame { std::vector<fluidic::DropEvent> events; float peak = 0; bool cut = false; int voices = 0; long long step = -1;
+                   std::vector<fluidic::RollNotice> rolls; int autoPos = -1; std::string autoMask; };
     Frame takeFrame();                                     // drops since the last call, for the visualiser
     juce::String getUiState() const { const juce::ScopedLock l (uiLock); return uiState; }
-    void setUiState (const juce::String& s) { const juce::ScopedLock l (uiLock); uiState = s; }
+    void setUiState (const juce::String& s);              // also carries AUTO ROLL and the HOLDs, which the plugin runs itself
     std::atomic<int> stateVersion { 0 };                   // bumped when the host restores a project
 
     static juce::File userBankFile();                      // %APPDATA%\FLUIDIC\user-bank.json (FX: user-bank-fx.json)
 
 private:
-    void timerCallback() override;                         // reverb size changes, like the prototype (debounced)
+    void timerCallback() override;                         // reverb size changes (debounced) and FLUIDIC FX's AUTO ROLL
+    void runAutoRoll();
     void readParams();
 
     fluidic::FluidicEngine engine;
@@ -85,6 +88,11 @@ private:
     std::atomic<long long> gridStep { -1 };   // FLUIDIC FX: the drip grid's step counter, for the window's auto-roll
 
     double pendingRevSize = -1; int revStableTicks = 0;
+
+    // FLUIDIC FX: the dice live here, so AUTO ROLL keeps rolling with the window closed (message thread only)
+    std::unique_ptr<fluidic::DiceRoller> dice;
+    fluidic::AutoConfig pendingAuto; bool autoDirty = false;   // guarded by uiLock
+    std::vector<fluidic::RollNotice> rollNotices;              // for the window's badge, until it collects them
     bool prepared = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FluidicProcessor)

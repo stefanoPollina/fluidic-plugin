@@ -483,7 +483,7 @@ const Fluidic = (() => {
             const now = performance.now();
             (m.events || []).forEach((ev) => spawn(ev, now));
             viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
-            if (m.step != null) gridSteps(m.step);
+            if (m.auto) pluginAuto(m.auto, m.rolls);   // FLUIDIC FX: the plugin rolls the dice, even with this window shut
           });
         }
         if (startOverlay.isConnected) startOverlay.remove();
@@ -943,6 +943,23 @@ const Fluidic = (() => {
         autoGrid.style.gridTemplateColumns = 'repeat(' + autoMask.length + ', 1fr)';
       }
       autoBoxes.forEach((b, i) => { b.classList.toggle('on', !!autoMask[i]); b.classList.toggle('here', autoOn && i === autoPos); });
+    }
+    // in the plugin, the dice roll inside the plugin (so AUTO ROLL runs with the window closed): show where and what
+    function pluginAuto(a, rolls) {
+      const pos = a.pos == null ? -1 : a.pos;
+      let repaint = pos !== autoPos;
+      autoPos = pos;
+      if (autoMode === 'random' && a.mask && a.mask.length === stepsPerBar()) {
+        const m = a.mask.split('').map((c) => c === '1');
+        if (m.join() !== autoMask.join()) { autoMask = m; repaint = true; }
+      }
+      if (rolls && rolls.length) {
+        const r = rolls[rolls.length - 1];
+        commit();   // the rolled values arrived just before this frame
+        lastRoll = (r.label === 'SET' ? 'set' : r.label) + ' ' + r.n;
+        showMini(r.label, r.n);
+      }
+      if (repaint) paintAuto();
     }
     // called with the engine's grid-step counter (frames, ~60 per second): handles every step since the last
     function gridSteps(k) {
