@@ -205,6 +205,18 @@
   .seqcell b { position: absolute; left: 0; right: 0; top: 2px; font: 600 7.5px var(--mono); color: #e9fbfe; letter-spacing: 0; text-align: center; pointer-events: none; text-shadow: 0 0 3px #000; }
   .seqcell.here { box-shadow: 0 0 0 2px var(--amber) inset; }
   .seqrow.off .seqcell.on i { opacity: .35; }
+  .seqcol { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 160px; }
+  .seqcol .seqgrid { min-width: 0; }
+  .seqcol .seqcell { height: 48px; }
+  .seqlane { display: grid; gap: 3px; }
+  .seqdie { height: 17px; border-radius: 4px; border: 1px dashed #2a2f36; background: transparent; color: #8a6a2a; font: 600 8.5px var(--mono); padding: 0; cursor: pointer; }
+  .seqdie.on { border: 1px solid #4a3a1a; background: #22190a; color: var(--amber); }
+  .seqdie.on.cursed { color: var(--curse); border-color: var(--curse); }
+  .seqlane.live .seqdie.on { background: #3a2c12; border-color: var(--amber); }
+  .seqlane.live .seqdie.on.here { background: var(--amber); color: #1a1205; }
+  .seqdicebrush { display: grid; grid-template-columns: repeat(8, max-content); gap: 3px; }
+  .seqdicebrush button { padding: 3px 5px; font-size: 9px; }
+  .seqdicebrush button.cursed.on { background: var(--curse); border-color: var(--curse); }
   .rollmini { position: absolute; right: 12px; bottom: 10px; z-index: 3; pointer-events: none; font: 600 11px var(--mono); color: var(--amber); background: rgba(5,12,16,.8); border: 1px solid #4a3a1a; border-radius: 6px; padding: 4px 8px; opacity: 0; transition: opacity .4s; }
   .rollmini b { color: #e9fbfe; letter-spacing: .1em; margin-right: 4px; }
   .rollmini.pop { opacity: 1; transition: none; }
@@ -913,12 +925,19 @@ const Fluidic = (() => {
     // roll rhythms, written on a 16-step bar (x = roll) and fitted to whatever grid is playing
     const euclid = (k) => Array.from({ length: 16 }, (_, i) => Math.floor(i * k / 16) !== Math.floor((i - 1) * k / 16) || i === 0);
     const pat16 = (str) => str.split('').map((c) => c === 'x');
+    // STEP SEQUENCER state (its row is built further down). Each step: drip on/off, its pattern, its accent, and its die
+    // for the "Sequencer steps" auto-roll style ('' none, 'auto' the AUTO ROLL die, or a die of its own)
+    const SEQ_MAX = 32, SEQ_ABBR = { even: 'E', rain: 'R', both: 'B', '3d': '3D', splash: 'SP', stream: 'ST', storm: 'SM' };
+    const SEQ_DIE_ABBR = { auto: '•', d4: '4', d6: '6', d8: '8', d12: '12', d20: '20', cursed: '☠', all: 'SET' };
+    let seqOn = false, seqBrush = '', seqDieBrush = 'auto', seqPos = -1, seqBtn = null, seqGrid = null, seqLane = null, seqRow = null;
+    let seqCells = [], seqDies = [], seqBrushBtns = [], seqDieBtns = [];
+    let seqSteps = Array.from({ length: SEQ_MAX }, () => ({ on: false, pat: '', acc: 0.75, die: '' }));
     const AUTO_STYLES = [
       ['STRAIGHT', [['steps', 'Every step · 1 2 3 4 5 6 7 8…'], ['8ths', '8ths · 1 and 2 and…'], ['beats', 'Beats · 1 and and and 2…'], ['half', 'Half-time · 1 and 3'], ['bars', 'Bars · once, on the 1']]],
       ['SYNCOPATED', [['offbeats', 'Off-beats · the "ands"'], ['backbeat', 'Backbeat · 2 and 4'], ['tresillo', 'Tresillo · 3·3·2'], ['clave32', 'Son clave 3-2'], ['clave23', 'Son clave 2-3'],
         ['rumba', 'Rumba clave 3-2'], ['bossa', 'Bossa nova'], ['dotted', 'Dotted 8ths · 3 against 4'], ['gallop', 'Gallop · 1 . a e'],
         ['euclid5', 'Euclid 5 in 16'], ['euclid7', 'Euclid 7 in 16'], ['euclid9', 'Euclid 9 in 16'], ['random', 'Random · new every bar']]],
-      ['YOURS', [['custom', 'Your pattern (click the steps)']]]
+      ['YOURS', [['custom', 'Your pattern (click the steps)'], ['seq', 'Sequencer steps · its dice lane']]]
     ];
     const PAT16 = {
       half: pat16('x.......x.......'), offbeats: pat16('..x...x...x...x.'), backbeat: pat16('....x.......x...'),
@@ -929,12 +948,14 @@ const Fluidic = (() => {
     const AUTO_KEYS = AUTO_STYLES.flatMap(([, g]) => g.map(([k]) => k));
     function maskFor(mode, len) {
       const per = len / 4;   // steps per beat
+      if (mode === 'seq') return Array.from({ length: len }, (_, i) => !!(seqSteps[i] && seqSteps[i].die));
       if (mode === 'random') { const m = Array.from({ length: len }, () => Math.random() < 0.35); m[0] = m[0] || !m.some(Boolean); return m; }
       if (PAT16[mode]) { const m = new Array(len).fill(false); PAT16[mode].forEach((on, i) => { if (on) m[Math.floor(i * len / 16)] = true; }); return m; }
       return Array.from({ length: len }, (_, i) => mode === 'steps' ? true : mode === '8ths' ? i % Math.max(1, per / 2) === 0 : mode === 'beats' ? i % per === 0 : i === 0);
     }
     function resizeMask() {
       const len = stepsPerBar();
+      if (autoMode === 'seq') { autoMask = maskFor('seq', len); return; }   // always the sequencer's dice lane
       if (autoMask.length === len) return;
       if (autoMode !== 'custom' || !autoMask.length) { autoMask = maskFor(autoMode === 'custom' ? 'beats' : autoMode, len); return; }
       const old = autoMask, m = new Array(len).fill(false);   // keep your pattern when the grid changes
@@ -945,6 +966,7 @@ const Fluidic = (() => {
       if (!autoBtn) return;
       resizeMask();
       autoBtn.classList.toggle('on', autoOn); autoBtn.textContent = autoOn ? 'AUTO ROLL · ON' : 'AUTO ROLL';
+      if (seqLane) seqLane.classList.toggle('live', autoOn && autoMode === 'seq');   // the dice lane lights up when it drives the dice
       autoDieBtns.forEach(([k, b]) => b.classList.toggle('on', k === autoDie));
       if (autoSel) autoSel.value = autoMode;
       if (holdRateBtn) {
@@ -957,7 +979,10 @@ const Fluidic = (() => {
         autoGrid.innerHTML = ''; const per = autoMask.length / 4;
         autoBoxes = autoMask.map((_, i) => {
           const b = el('button', 'stepbox' + (i % per === 0 ? ' beat' : '')); b.type = 'button'; b.title = 'Step ' + (i + 1) + ': click to roll here or not';
-          b.addEventListener('click', () => { resizeMask(); autoMask[i] = !autoMask[i]; autoMode = 'custom'; paintAuto(); persistUi(); });
+          b.addEventListener('click', () => {
+            if (autoMode === 'seq') { const st = seqSteps[i]; st.die = st.die ? '' : seqDieBrush; seqChanged(); return; }   // edits the sequencer's dice lane
+            resizeMask(); autoMask[i] = !autoMask[i]; autoMode = 'custom'; paintAuto(); persistUi();
+          });
           autoGrid.append(b); return b;
         });
         autoGrid.style.gridTemplateColumns = 'repeat(' + autoMask.length + ', 1fr)';
@@ -992,8 +1017,9 @@ const Fluidic = (() => {
         autoPos = ((lastGridStep % autoMask.length) + autoMask.length) % autoMask.length;
         if (autoPos === 0 && autoMode === 'random') autoMask = maskFor('random', autoMask.length);   // a new random bar
         if (autoMask[autoPos]) {
-          const d = DICE.find((x) => x[0] === autoDie);
-          if (autoDie === 'all') rollAll(true); else if (d) roll(d[0], d[1], true);
+          const sd = autoMode === 'seq' ? seqSteps[autoPos].die : '', key = sd && sd !== 'auto' ? sd : autoDie;   // a step's own die
+          const d = DICE.find((x) => x[0] === key);
+          if (key === 'all') rollAll(true); else if (d) roll(d[0], d[1], true);
         }
       }
       if (autoOn) paintAuto();
@@ -1037,28 +1063,25 @@ const Fluidic = (() => {
     }
     // STEP SEQUENCER: program where drips fall. Lit steps always drip, each as its own pattern (or the PATTERN dial),
     // as hard as its accent (drag a step up or down). The grid (1/4 … 1/32) sets how many steps there are.
-    const SEQ_MAX = 32, SEQ_ABBR = { even: 'E', rain: 'R', both: 'B', '3d': '3D', splash: 'SP', stream: 'ST', storm: 'SM' };
-    let seqOn = false, seqBrush = '', seqPos = -1, seqBtn = null, seqGrid = null, seqRow = null, seqCells = [], seqBrushBtns = [];
-    let seqSteps = Array.from({ length: SEQ_MAX }, () => ({ on: false, pat: '', acc: 0.75 }));
-    function seqData() { return { on: seqOn, steps: seqSteps.map((x) => ({ on: !!x.on, pat: x.pat || '', acc: Math.round(x.acc * 100) / 100 })) }; }
+    function seqData() { return { on: seqOn, steps: seqSteps.map((x) => ({ on: !!x.on, pat: x.pat || '', acc: Math.round(x.acc * 100) / 100, die: x.die || '' })) }; }
     function setSeqState(q) {
       if (!q || !FX) return;
       seqOn = !!q.on;
       seqSteps = Array.from({ length: SEQ_MAX }, (_, i) => {
         const x = (q.steps || [])[i] || {};
-        return { on: !!x.on, pat: SEQ_ABBR[x.pat] ? x.pat : '', acc: Math.min(1, Math.max(0, x.acc == null ? 0.75 : +x.acc)) };
+        return { on: !!x.on, pat: SEQ_ABBR[x.pat] ? x.pat : '', acc: Math.min(1, Math.max(0, x.acc == null ? 0.75 : +x.acc)), die: SEQ_DIE_ABBR[x.die] ? x.die : '' };
       });
       seqChanged(true);
     }
     function seqChanged(quiet) {
-      paintSeq();
+      paintSeq(); if (autoMode === 'seq') paintAuto();
       if (node && !plugin) node.port.postMessage({ type: 'seq', seq: seqData() });
       if (!quiet || plugin) persistUi();
     }
     function seqStep(k) {
       if (!seqGrid) return;
       const len = stepsPerBar(), pos = seqOn ? ((k % len) + len) % len : -1;
-      if (pos !== seqPos) { seqPos = pos; seqCells.forEach((c, i) => c.classList.toggle('here', i === seqPos)); }
+      if (pos !== seqPos) { seqPos = pos; seqCells.forEach((c, i) => c.classList.toggle('here', i === seqPos)); seqDies.forEach((d, i) => d.classList.toggle('here', i === seqPos)); }
     }
     function paintSeq() {
       if (!seqGrid) return;
@@ -1078,27 +1101,40 @@ const Fluidic = (() => {
           c.addEventListener('pointermove', (e) => {
             if (!c.hasPointerCapture(e.pointerId)) return;
             if (!dragged && Math.abs(e.clientY - y0) < 4) return;
-            dragged = true; const st = seqSteps[i]; if (!st.on) { st.on = true; st.pat = seqBrush; } st.acc = accAt(e); paintSeq();
+            dragged = true; const st = seqSteps[i]; if (!st.on) { st.on = true; st.pat = seqBrush; if (!st.die) st.die = 'auto'; } st.acc = accAt(e); paintSeq();
           });
           c.addEventListener('pointerup', (e) => {
             if (!c.hasPointerCapture(e.pointerId)) return;
             c.releasePointerCapture(e.pointerId);
             const st = seqSteps[i];
             if (!dragged) {
-              if (st.on && st.pat === seqBrush) st.on = false;   // same brush: clear it
-              else { st.on = true; st.pat = seqBrush; }          // light it, or repaint its pattern
+              if (st.on && st.pat === seqBrush) { st.on = false; if (st.die === 'auto') st.die = ''; }   // same brush: clear it (and its linked die)
+              else { if (!st.on && !st.die) st.die = 'auto'; st.on = true; st.pat = seqBrush; }        // light it (drip + roll), or repaint its pattern
             }
             seqChanged();
           });
           c.addEventListener('contextmenu', (e) => {   // right-click: cycle this step's pattern
             e.preventDefault(); const st = seqSteps[i], keys = [''].concat(PATTERNS.map((x) => x[0]));
-            st.pat = keys[(keys.indexOf(st.pat) + 1) % keys.length]; st.on = true; seqChanged();
+            st.pat = keys[(keys.indexOf(st.pat) + 1) % keys.length]; if (!st.on && !st.die) st.die = 'auto'; st.on = true; seqChanged();
           });
           seqGrid.append(c); return c;
         });
         seqGrid.style.gridTemplateColumns = 'repeat(' + len + ', minmax(0, 1fr))';
+        // the dice lane: which die each step rolls (with AUTO ROLL on "Sequencer steps")
+        seqLane.innerHTML = '';
+        seqDies = Array.from({ length: len }, (_, i) => {
+          const d = el('button', 'seqdie'); d.type = 'button';
+          d.title = 'Step ' + (i + 1) + ' dice: click to give it the DICE brush (click again to remove) · right-click to remove';
+          d.addEventListener('click', () => { const st = seqSteps[i]; st.die = st.die === seqDieBrush ? '' : seqDieBrush; seqChanged(); });
+          d.addEventListener('contextmenu', (e) => { e.preventDefault(); seqSteps[i].die = ''; seqChanged(); });
+          seqLane.append(d); return d;
+        });
+        seqLane.style.gridTemplateColumns = seqGrid.style.gridTemplateColumns;
         seqPos = -1;
       }
+      seqDieBtns.forEach(([k, b]) => b.classList.toggle('on', k === seqDieBrush));
+      seqLane.classList.toggle('live', autoOn && autoMode === 'seq');
+      seqDies.forEach((d, i) => { const k = seqSteps[i].die; d.classList.toggle('on', !!k); d.classList.toggle('cursed', k === 'cursed'); d.textContent = k ? SEQ_DIE_ABBR[k] : ''; });
       seqCells.forEach((c, i) => {
         const st = seqSteps[i];
         c.classList.toggle('on', st.on);
@@ -1113,7 +1149,7 @@ const Fluidic = (() => {
       seqBtn.addEventListener('click', () => {
         seqOn = !seqOn;
         if (seqOn && !seqSteps.slice(0, stepsPerBar()).some((x) => x.on)) {   // empty: start from the beats
-          const per = stepsPerBar() / 4; seqSteps.forEach((x, i) => { x.on = i % per === 0 && i < stepsPerBar(); x.pat = ''; });
+          const per = stepsPerBar() / 4; seqSteps.forEach((x, i) => { x.on = i % per === 0 && i < stepsPerBar(); x.pat = ''; x.die = x.on ? 'auto' : ''; });
         }
         seqChanged();
       });
@@ -1125,15 +1161,25 @@ const Fluidic = (() => {
       });
       const tools = el('div', 'seqtools');
       const clr = el('button', 'lock', 'CLEAR'); clr.type = 'button'; clr.title = 'Clear every step';
-      clr.addEventListener('click', () => { seqSteps.forEach((x) => { x.on = false; x.pat = ''; x.acc = 0.75; }); seqChanged(); });
+      clr.addEventListener('click', () => { seqSteps.forEach((x) => { x.on = false; x.pat = ''; x.acc = 0.75; x.die = ''; }); seqChanged(); });
       const fill = el('button', 'lock', 'BEATS'); fill.type = 'button'; fill.title = 'Light every beat with the brush';
-      fill.addEventListener('click', () => { const len = stepsPerBar(), per = len / 4; seqSteps.forEach((x, i) => { if (i < len && i % per === 0) { x.on = true; x.pat = seqBrush; } }); seqChanged(); });
+      fill.addEventListener('click', () => { const len = stepsPerBar(), per = len / 4; seqSteps.forEach((x, i) => { if (i < len && i % per === 0) { x.on = true; x.pat = seqBrush; if (!x.die) x.die = 'auto'; } }); seqChanged(); });
       const flat = el('button', 'lock', 'ACCENTS 75'); flat.type = 'button'; flat.title = 'Set every accent back to 75%';
       flat.addEventListener('click', () => { seqSteps.forEach((x) => { x.acc = 0.75; }); seqChanged(); });
       tools.append(clr, fill, flat);
-      side.append(brush, tools);
-      seqGrid = el('div', 'seqgrid');
-      seqRow.append(seqBtn, el('small', '', 'BRUSH'), side, seqGrid);
+      // DICE brush: what the dice lane paints (AUTO = the AUTO ROLL die)
+      const dieBrush = el('div', 'segs mini seqdicebrush');
+      seqDieBtns = ['auto'].concat(DICE.map((x) => x[0])).map((k) => {
+        const b = el('button', k === 'cursed' ? 'cursed' : '', k === 'auto' ? 'AUTO' : k === 'all' ? 'SET' : k === 'cursed' ? '☠' : k); b.type = 'button';
+        b.title = k === 'auto' ? 'Dice brush: steps roll the AUTO ROLL die' : 'Dice brush: steps roll ' + (k === 'all' ? 'the whole set' : k === 'cursed' ? 'the cursed d20' : 'the ' + k);
+        b.addEventListener('click', () => { seqDieBrush = k; paintSeq(); }); dieBrush.append(b); return [k, b];
+      });
+      side.append(brush, dieBrush, tools);
+      const col = el('div', 'seqcol');
+      seqGrid = el('div', 'seqgrid'); seqLane = el('div', 'seqlane');
+      seqLane.title = 'Dice lane: with AUTO ROLL on "Sequencer steps", these steps roll their die';
+      col.append(seqGrid, seqLane);
+      seqRow.append(seqBtn, el('small', '', 'BRUSH'), side, col);
       tray.append(seqRow);
       widgets.push({ id: 'rhy.rate', paint: paintSeq });
       paintSeq();

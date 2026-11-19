@@ -107,6 +107,8 @@ AutoConfig parseAuto (const juce::String& json)
         if (a["mask"].isString()) c.customMask = a["mask"].toString().toStdString();
         c.holdRate = (bool) a["holdRate"]; c.holdPattern = (bool) a["holdPattern"];
     }
+    if (auto* st = v["seq"]["steps"].getArray())   // the sequencer's dice lane
+        for (auto& x : *st) c.seqDice.push_back (x["die"].toString().toStdString());
     if (const auto h = v["holds"]; h.isObject())
     {
         if (auto* s = h["secs"].getArray()) for (auto& x : *s) c.holdSecs.insert (x.toString().toStdString());

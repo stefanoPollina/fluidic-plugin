@@ -71,7 +71,7 @@ int DiceRoller::index (const std::string& id) const
 
 void DiceRoller::setConfig (const AutoConfig& c)
 {
-    const bool rhythmChanged = c.mode != cfg.mode || c.customMask != cfg.customMask;
+    const bool rhythmChanged = c.mode != cfg.mode || c.customMask != cfg.customMask || c.seqDice != cfg.seqDice;
     if (! c.on) pos = -1;
     cfg = c;
     if (rhythmChanged)
@@ -220,6 +220,11 @@ std::vector<bool> DiceRoller::maskFor (const std::string& mode, int len)
 {
     const int per = std::max (1, len / 4);   // steps per beat
     std::vector<bool> m ((size_t) len, false);
+    if (mode == "seq")   // the sequencer's dice lane
+    {
+        for (int i = 0; i < len && i < (int) cfg.seqDice.size(); ++i) m[(size_t) i] = ! cfg.seqDice[(size_t) i].empty();
+        return m;
+    }
     if (mode == "random")
     {
         bool any = false;
@@ -240,6 +245,7 @@ std::vector<bool> DiceRoller::maskFor (const std::string& mode, int len)
 
 void DiceRoller::resizeMask (int len)
 {
+    if (cfg.mode == "seq") { mask = maskFor ("seq", len); return; }   // always the sequencer's dice lane
     if ((int) mask.size() == len) return;
     if (cfg.mode != "custom" || mask.empty()) { mask = maskFor (cfg.mode == "custom" ? "beats" : cfg.mode, len); return; }
     std::vector<bool> m ((size_t) len, false);   // keep your pattern when the grid changes
@@ -261,7 +267,12 @@ void DiceRoller::onGridStep (long long k, const Getter& get, const Setter& set)
         resizeMask (len);
         pos = (int) (((lastStep % len) + len) % len);
         if (pos == 0 && cfg.mode == "random") mask = maskFor ("random", len);   // a new random bar
-        if (mask[(size_t) pos]) roll (cfg.die, get, set);
+        if (mask[(size_t) pos])
+        {
+            std::string key = cfg.die;   // a sequencer step can carry its own die
+            if (cfg.mode == "seq" && pos < (int) cfg.seqDice.size() && ! cfg.seqDice[(size_t) pos].empty() && cfg.seqDice[(size_t) pos] != "auto") key = cfg.seqDice[(size_t) pos];
+            roll (key, get, set);
+        }
     }
 }
 } // namespace fluidic

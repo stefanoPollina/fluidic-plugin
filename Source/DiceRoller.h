@@ -21,6 +21,7 @@ struct AutoConfig
     std::string customMask;         // "1010…" when mode is custom
     bool holdRate = false, holdPattern = false;
     std::set<std::string> holdSecs, holdIds;
+    std::vector<std::string> seqDice;   // "Sequencer steps" style: each step's die ("" none, "auto" = die above)
 };
 
 struct RollNotice { std::string label; int n = 0; };

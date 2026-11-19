@@ -30,6 +30,8 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
   - **Drag a step up or down** to set its accent: how hard that drip hits.
   - **Right-click a step** to cycle its pattern.
   - Lit steps always drip; unlit steps stay dry. The grid (1/4 … 1/32) sets how many steps play (up to 32). CLEAR, BEATS and ACCENTS 75 help you start over.
+  - **Dice lane** (under the steps): which die each step rolls. Pick a **DICE** brush (AUTO = the AUTO ROLL die, d4–d20, ☠, SET) and click a step's lane box; click again or right-click to remove it. Lighting a drip step gives it the AUTO die, so by default a lit step drips *and* rolls; you can also roll on a step that doesn't drip, or drip without rolling.
+  - Set AUTO ROLL's style to **Sequencer steps** and the dice roll exactly where the lane says, each step with its own die. The lane lights up while it's driving the dice.
   - Saved with the project. FOLLOW still applies, so a silent track stays silent.
 - **Hold anything from the dice** (both plugins, manual and auto rolls). Everything you hold saves with the project.
   - **A whole panel:** its **HOLD** button.
