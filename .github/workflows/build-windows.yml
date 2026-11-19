@@ -1,10 +1,14 @@
 name: Build FLUIDIC for Windows
 
 # Every push builds FLUIDIC (instrument: VST3 + standalone), FLUIDIC FX (audio effect: VST3) and one installer
-# on GitHub's Windows machines. Download them from the run's "Artifacts" section: Actions tab → latest run → FLUIDIC-windows.
+# on GitHub's Windows machines, and publishes them as a Release (main branch) that anyone can download without signing in:
+#   https://github.com/stefanoPollina/fluidic-plugin/releases/latest
 on:
   push:
   workflow_dispatch:
+
+permissions:
+  contents: write   # to publish the Release
 
 jobs:
   windows:
@@ -42,3 +46,18 @@ jobs:
         with:
           name: FLUIDIC-windows
           path: dist/
+
+      - name: Publish a Release (direct, public download links)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = (Select-String -Path CMakeLists.txt -Pattern 'project\(FLUIDIC VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          $ver = "$v.$env:GITHUB_RUN_NUMBER"
+          New-Item -ItemType Directory -Force rel | Out-Null
+          # fixed file names, so the "latest" links never change
+          Copy-Item (Get-ChildItem installer\Output\*.exe | Select-Object -First 1).FullName rel\FLUIDIC-Windows-Setup.exe
+          Compress-Archive -Path dist\FLUIDIC.exe, dist\FLUIDIC.vst3, "dist\FLUIDIC FX.vst3" -DestinationPath rel\FLUIDIC-Windows-Plugins.zip
+          $notes = "FLUIDIC $ver for Windows.`n`n- **FLUIDIC-Windows-Setup.exe**: the installer (FLUIDIC + FLUIDIC FX VST3s and the standalone app). Close your DAW first, then rescan plugins.`n- **FLUIDIC-Windows-Plugins.zip**: the same files to copy by hand (VST3s go in C:\Program Files\Common Files\VST3).`n`nBuilt from $env:GITHUB_SHA."
+          gh release create "v$ver" rel\FLUIDIC-Windows-Setup.exe rel\FLUIDIC-Windows-Plugins.zip --title "FLUIDIC $ver" --notes $notes --latest --target $env:GITHUB_SHA

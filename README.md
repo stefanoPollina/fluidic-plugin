@@ -1,5 +1,7 @@
 # FLUIDIC — drip synthesis (VST3 for Windows)
 
+**Download (Windows):** [FLUIDIC-Windows-Setup.exe](https://github.com/stefanoPollina/fluidic-plugin/releases/latest/download/FLUIDIC-Windows-Setup.exe) (installer), or see [all releases](https://github.com/stefanoPollina/fluidic-plugin/releases/latest). No GitHub sign-in needed.
+
 Two plugins from one project, for Ableton Live, FL Studio and any other VST3 host:
 
 - **FLUIDIC** is an **instrument**: the drip synth. It also comes as a standalone app.
