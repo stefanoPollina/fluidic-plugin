@@ -78,7 +78,7 @@ FluidicProcessor::FluidicProcessor()
     pFA = P ("filt.attack"); pFD = P ("filt.decay"); pFKey = P ("filt.key"); pFRate = P ("filt.lfoRate"); pFDepth = P ("filt.lfoDepth");
     pA = P ("amp.a"); pD = P ("amp.d"); pS = P ("amp.s"); pR = P ("amp.r"); pOut = P ("out.level");
     pDMix = P ("fx.delayMix"); pDTime = P ("fx.delayTime"); pDFb = P ("fx.delayFb"); pRMix = P ("fx.revMix"); rawRevSize = P ("fx.revSize");
-    pRate = P ("rhy.rate"); pBpm = P ("rhy.bpm"); pSense = P ("rhy.sense"); pMix = P ("in.mix"); pChop = P ("in.chop"); pDrive = P ("in.drive");
+    pRate = P ("rhy.rate"); pBpm = P ("rhy.bpm"); pSense = P ("rhy.sense"); pMix = P ("in.mix"); pChop = P ("in.chop"); pDrive = P ("in.drive"); pFollow = P ("in.follow");
     uiState = isFx ? R"({"preset":"f:Drippiness"})" : R"({"preset":"f:Sine Meditation"})";
     engine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
     fxEngine.seed ((uint32_t) juce::Random::getSystemRandom().nextInt());
@@ -191,7 +191,7 @@ void FluidicProcessor::readParams()
         q.pattern = p.pattern; q.rate = rates[ix (pRate, 3)]; q.bpm = v (pBpm); q.density = p.density; q.sense = v (pSense);
         q.cutoff = p.cutoff; q.res = p.res; q.ping = p.ping; q.sweep = p.sweep; q.fall = p.fall; q.bubble = p.bubble; q.wobble = p.wobble;
         q.chirp = p.chirp; q.width = p.width; q.size = p.size; q.edge = p.edge; q.key = p.key;
-        q.mix = v (pMix); q.chop = v (pChop); q.drive = v (pDrive);
+        q.mix = v (pMix); q.chop = v (pChop); q.drive = v (pDrive); q.follow = v (pFollow);
         q.fType = p.fType; q.fCut = p.fCut; q.fRes = p.fRes; q.fDrive = p.fDrive; q.fEnv = p.fEnv; q.fA = p.fA; q.fD = p.fD;
         q.fRate = p.fRate; q.fDepth = p.fDepth; q.level = p.level;
         q.wave = p.wave; q.oscLevel = p.oscLevel; q.hold = p.hold; q.octave = p.octave;   // tone layer

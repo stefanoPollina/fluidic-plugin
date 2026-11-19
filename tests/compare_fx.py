@@ -36,6 +36,8 @@ CASES = {
  'AMP snappy': {'pattern':'even','a':.001,'d':.05,'s':0,'r':.05},
  'AMP swell': {'pattern':'even','rate':2,'a':.3,'s':1,'r':1},
  'filter KEY': {'pattern':'both','fType':'lp24','fCut':500,'fKey':1},
+ 'FOLLOW off': {'pattern':'rain','rate':8,'follow':0},
+ 'FOLLOW half, 1/32': {'pattern':'stream','rate':8,'follow':.5},
 }
 async def main():
   fails = 0

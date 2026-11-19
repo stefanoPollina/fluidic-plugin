@@ -15,7 +15,7 @@ const DEFAULTS = {
   pattern: 'even', rate: 4, bpm: 120, density: 0.5, sense: 0,
   cutoff: 900, res: 0.8, ping: 0.6, sweep: 2.2, fall: 0.08, bubble: 0.55, wobble: 0.3,
   chirp: 0, width: 0.4, size: 0.5, edge: 0, key: 1,
-  mix: 0.5, chop: 0, drive: 1,
+  mix: 0.5, chop: 0, drive: 1, follow: 1,
   fType: 'off', fCut: 2400, fRes: 0.25, fDrive: 0, fEnv: 0, fA: 0.005, fD: 0.25, fRate: 0.15, fDepth: 0,
   level: 0.8,
   wave: 'saw', oscLevel: 0, hold: 0, octave: 0,          // EXCITER tone layer (LEVEL 0 = the input only)
@@ -37,7 +37,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     this.p = Object.assign({}, DEFAULTS);
     this.drops = Array.from({ length: DROPS }, makeDrop);
     this.clock = 0; this.step = 0; this.pending = [];
-    this.fast = 0; this.slow = 0; this.refractory = 0;
+    this.fast = 0; this.slow = 0; this.refractory = 0; this.lvl = 0;
     this.gate = 0; this.held = []; this.lfoPh = 0; this.lastNote = 60;
     this.fst = new Float64Array(8); this.fenv = 0; this.fstage = 0; this.fg = 0.1;
     this.events = []; this.peak = 0; this.cutFlash = 0;
@@ -81,6 +81,12 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
   // one grid step: the pattern decides what falls
   onStep(k, spb) {
     const p = this.p, dens = clamp(p.density, 0, 1), rate = Math.max(1, p.rate | 0), onBeat = k % rate === 0, r = Math.random;
+    // FOLLOW: drips only fall while the input has sound (-70 dB shut … -45 dB fully open)
+    const follow = clamp(p.follow, 0, 1);
+    if (follow > 0.001) {
+      const open = clamp((20 * Math.log10(this.lvl + 1e-9) + 70) / 25, 0, 1), keep = 1 - follow * (1 - open);
+      if (keep < 1 && r() >= keep) return;
+    }
     const cluster = (n, gap, size, kind) => { for (let j = 1; j < n; j++) this.pending.push({ at: Math.round(gap * j), size: size * (0.85 - j * 0.08), kind }); };
     switch (p.pattern) {
       case 'even': this.spawn(onBeat ? 0.85 : 0.6 + r() * 0.15, 'rain'); break;
@@ -117,7 +123,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
     const mix = clamp(p.mix, 0, 1), dryAmt = mix < 0.5 ? 1 : 2 * (1 - mix), wetAmt = mix < 0.5 ? 2 * mix : 1;
     const chop = clamp(p.chop, 0, 1), sense = clamp(p.sense, 0, 1), drive = clamp(p.drive, 0, 4);
     const kFastA = 1 - Math.exp(-1 / (0.0005 * sr)), kFastR = 1 - Math.exp(-1 / (0.006 * sr));
-    const kSlowA = 1 - Math.exp(-1 / (0.03 * sr)), kSlowR = 1 - Math.exp(-1 / (0.2 * sr));
+    const kSlowA = 1 - Math.exp(-1 / (0.03 * sr)), kSlowR = 1 - Math.exp(-1 / (0.2 * sr)), kLvlR = 1 - Math.exp(-1 / (0.15 * sr));
     const kGateA = 1 - Math.exp(-1 / (0.001 * sr)), kGateR = 1 - Math.exp(-1 / (0.012 * sr));
     const kAtt = 1 / Math.max(1, 0.0008 * sr);
     const fType = p.fType, fOn = fType && fType !== 'off', fRes = clamp(p.fRes, 0, 1), fk = 2 - 1.96 * fRes, fk24 = 2 - 1.6 * fRes, bpGain = Math.pow(fk, 0.7) * 1.4;
@@ -139,6 +145,7 @@ class FluidicFxProcessor extends AudioWorkletProcessor {
       const a = Math.abs(mono);
       this.fast += (a - this.fast) * (a > this.fast ? kFastA : kFastR);
       this.slow += (a - this.slow) * (a > this.slow ? kSlowA : kSlowR);
+      this.lvl += (a - this.lvl) * (a > this.lvl ? kSlowA : kLvlR);
       if (this.refractory > 0) this.refractory -= 1;
       else if (sense > 0.001 && this.fast > 0.02 && this.fast > this.slow * (1.25 + (1 - sense) * 3.5)) {
         this.spawn(clamp(this.fast * 2.2, 0.3, 1.2), 'note'); this.refractory = 0.06 * sr;

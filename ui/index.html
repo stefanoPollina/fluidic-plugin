@@ -309,7 +309,8 @@ const Fluidic = (() => {
     { id: 'in.chop', name: 'Chop', label: 'CHOP', eng: 'chop', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)), fxOnly: true },
     { id: 'rhy.rate', name: 'Rate', eng: 'rate', type: 'enum', options: RATES, def: '4', fxOnly: true },
     { id: 'rhy.bpm', name: 'Tempo', label: 'BPM', eng: 'bpm', min: 60, max: 200, step: 1, def: 120, fmt: (v) => Math.round(v) + '', fxOnly: true },
-    { id: 'rhy.sense', name: 'Hit sense', label: 'SENSE', eng: 'sense', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)), fxOnly: true }
+    { id: 'rhy.sense', name: 'Hit sense', label: 'SENSE', eng: 'sense', min: 0, max: 1, def: 0, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)), fxOnly: true },
+    { id: 'in.follow', name: 'Follow', label: 'FOLLOW', eng: 'follow', min: 0, max: 1, def: 1, fmt: (v) => (v < 0.01 ? 'OFF' : pct(v)), fxOnly: true }
   ];
   // the synth's own sound sources and envelope have no meaning in the effect
   // in FLUIDIC FX these start neutral, so the effect sounds as designed until you reach for them
@@ -379,7 +380,7 @@ const Fluidic = (() => {
     'in.drive': [0.7, 1.8], 'in.mix': [0.35, 0.8], 'in.chop': [0, 0.8], 'rhy.sense': [0, 0.6]
   };
   const SAFE_ENUM = { 'rhy.rate': ['2', '4', '4', '8'], 'drip.pattern': ['even', 'rain', 'both', '3d', 'splash', 'stream'], 'filt.type': ['off', 'lp', 'lp', 'lp24', 'lp24', 'hp', 'bp', 'notch'] };
-  const DICE_POOL = PARAMS.map((p) => p.id).filter((id) => id !== 'out.level' && id !== 'drip.edge' && id !== 'rhy.bpm');   // tempo stays yours too
+  const DICE_POOL = PARAMS.map((p) => p.id).filter((id) => id !== 'out.level' && id !== 'drip.edge' && id !== 'rhy.bpm' && id !== 'in.follow');   // tempo and FOLLOW stay yours too
   const DROP_SHAPE = ['drip.ping', 'drip.sweep', 'drip.fall', 'drip.bubble', 'drip.wobble', 'drip.chirp', 'drip.size'];
   const SEC_NAMES = [['exc', 'EXC'], ['drip', 'DRIP'], ['filt', 'FILTER'], ['amp', 'AMP'], ['fx', 'SPACE']];
   const DIE_SHAPES = {
@@ -815,7 +816,7 @@ const Fluidic = (() => {
       }
       srcNote = el('div', 'srcnote', plugin ? 'THE TRACK THIS IS ON' : 'BUILT-IN BREAK'); pExc.append(srcNote);
       scope(pExc, drawInput, ['rhy.bpm']);
-      const ik = el('div', 'knobs'); ['in.drive', 'in.mix', 'in.chop'].forEach((id) => knob(ik, id)); pExc.append(ik);
+      const ik = el('div', 'knobs'); ['in.drive', 'in.mix', 'in.chop', 'in.follow'].forEach((id) => knob(ik, id)); pExc.append(ik);
       pIn = pExc; pIn.classList.add('inpanel');
     }
     {

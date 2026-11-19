@@ -23,7 +23,7 @@ inline void svf (std::array<double, 8>& st, int o, double x, double g, double k,
 void FluidicFxEngine::prepare (double sampleRate)
 {
     sr = sampleRate; events.reserve (128); pending.reserve (64); held.reserve (16);
-    panic(); sync(); fast = slow = refractory = gate = 0; fst.fill (0); fenv = 0; fstage = 0;
+    panic(); sync(); fast = slow = lvl = refractory = gate = 0; fst.fill (0); fenv = 0; fstage = 0;
 }
 
 int FluidicFxEngine::activeDrops() const { int n = 0; for (auto& d : drops) n += d.active ? 1 : 0; return n; }
@@ -86,6 +86,13 @@ void FluidicFxEngine::onStep (long long k, double spb)
 {
     const double dens = clampd (p.density, 0, 1); const int rate = std::max (1, p.rate); const bool onBeat = k % rate == 0;
     auto r = [this] { return rng.next(); };
+    // FOLLOW: drips only fall while the input has sound (-70 dB shut … -45 dB fully open)
+    const double follow = clampd (p.follow, 0, 1);
+    if (follow > 0.001)
+    {
+        const double open = clampd ((20 * std::log10 (lvl + 1e-9) + 70) / 25, 0, 1), keep = 1 - follow * (1 - open);
+        if (keep < 1 && r() >= keep) return;
+    }
     auto cluster = [this] (int n, double gap, double size, DropKind kind)
     { for (int j = 1; j < n; ++j) pending.push_back ({ (double) std::llround (gap * j), size * (0.85 - j * 0.08), kind }); };
     switch (p.pattern)
@@ -137,7 +144,7 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
     const double mix = clampd (p.mix, 0, 1), dryAmt = mix < 0.5 ? 1 : 2 * (1 - mix), wetAmt = mix < 0.5 ? 2 * mix : 1;
     const double chop = clampd (p.chop, 0, 1), sense = clampd (p.sense, 0, 1), drive = clampd (p.drive, 0, 4);
     const double kFastA = 1 - std::exp (-1 / (0.0005 * sr)), kFastR = 1 - std::exp (-1 / (0.006 * sr));
-    const double kSlowA = 1 - std::exp (-1 / (0.03 * sr)), kSlowR = 1 - std::exp (-1 / (0.2 * sr));
+    const double kSlowA = 1 - std::exp (-1 / (0.03 * sr)), kSlowR = 1 - std::exp (-1 / (0.2 * sr)), kLvlR = 1 - std::exp (-1 / (0.15 * sr));
     const double kGateA = 1 - std::exp (-1 / (0.001 * sr)), kGateR = 1 - std::exp (-1 / (0.012 * sr));
     const double kAtt = 1 / std::max (1.0, 0.0008 * sr), attLen = 1 / kAtt;
     const FilterType fType = p.fType; const bool fOn = fType != FilterType::off;
@@ -167,6 +174,7 @@ void FluidicFxEngine::renderBlock (const float* inL, const float* inR, float* L,
         const double a = std::abs (mono);
         fast += (a - fast) * (a > fast ? kFastA : kFastR);
         slow += (a - slow) * (a > slow ? kSlowA : kSlowR);
+        lvl += (a - lvl) * (a > lvl ? kSlowA : kLvlR);
         if (refractory > 0) refractory -= 1;
         else if (sense > 0.001 && fast > 0.02 && fast > slow * (1.25 + (1 - sense) * 3.5)) { spawn (clampd (fast * 2.2, 0.3, 1.2), DropKind::note); refractory = 0.06 * sr; }
         lfoPh += lfoInc; if (lfoPh >= 1) lfoPh -= 1;

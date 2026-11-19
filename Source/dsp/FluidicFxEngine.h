@@ -14,7 +14,7 @@ struct FxEngineParams
     Pattern pattern = Pattern::even; int rate = 4; double bpm = 120, density = 0.5, sense = 0;
     double cutoff = 900, res = 0.8, ping = 0.6, sweep = 2.2, fall = 0.08, bubble = 0.55, wobble = 0.3;
     double chirp = 0, width = 0.4, size = 0.5, edge = 0, key = 1;
-    double mix = 0.5, chop = 0, drive = 1;
+    double mix = 0.5, chop = 0, drive = 1, follow = 1;   // FOLLOW: drips only while the input has sound
     FilterType fType = FilterType::off;
     double fCut = 2400, fRes = 0.25, fDrive = 0, fEnv = 0, fA = 0.005, fD = 0.25, fRate = 0.15, fDepth = 0;
     double level = 0.8;
@@ -66,7 +66,7 @@ private:
     std::vector<Pending> pending;
     std::vector<int> held;
     Rng rng;
-    double sr = 48000, clock = 0, fast = 0, slow = 0, refractory = 0, gate = 0, lfoPh = 0; int lastNote = 60;
+    double sr = 48000, clock = 0, fast = 0, slow = 0, lvl = 0, refractory = 0, gate = 0, lfoPh = 0; int lastNote = 60;
     long long step = 0; bool gridFresh = true, gridRun = true;
     std::array<double, 8> fst {}; double fenv = 0, fg = 0.1; int fstage = 0;
 };

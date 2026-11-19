@@ -58,7 +58,7 @@ DiceRoller::DiceRoller (const std::vector<std::string>& available, bool isFx, ui
     for (auto& s : T)   // table order, like the prototype's POOL
     {
         const std::string id = s.id;
-        if (id == "out.level" || id == "drip.edge" || id == "rhy.bpm") continue;   // level, EDGE and tempo stay yours
+        if (id == "out.level" || id == "drip.edge" || id == "rhy.bpm" || id == "in.follow") continue;   // level, EDGE, tempo and FOLLOW stay yours
         if (std::find (available.begin(), available.end(), id) != available.end()) pool.push_back (id);
     }
 }

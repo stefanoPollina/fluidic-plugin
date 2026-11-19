@@ -60,6 +60,7 @@ inline const std::vector<ParamSpec>& paramTable()
     { "rhy.rate", "Rate", Kind::choice, 0.0f, 3.0f, 2.0f, false, { "1", "2", "4", "8" }, { "1/4", "1/8", "1/16", "1/32" }, "", 2.0f, false, true },
     { "rhy.bpm", "Tempo", Kind::integer, 60.0f, 200.0f, 120.0f, false, {}, {}, "bpm", 120.0f, false, true },
     { "rhy.sense", "Hit sense", Kind::number, 0.0f, 1.0f, 0.0f, false, {}, {}, "pctoff", 0.0f, false, true },
+    { "in.follow", "Follow", Kind::number, 0.0f, 1.0f, 1.0f, false, {}, {}, "pctoff", 1.0f, false, true },
     };
     return table;
 }
