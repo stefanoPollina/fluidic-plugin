@@ -33,6 +33,7 @@ Two plugins from one project, for Ableton Live, FL Studio and any other VST3 hos
   - **Dice lane** (under the steps): which die each step rolls. Pick a **DICE** brush (AUTO = the AUTO ROLL die, d4–d20, ☠, SET) and click a step's lane box; click again or right-click to remove it. Lighting a drip step gives it the AUTO die, so by default a lit step drips *and* rolls; you can also roll on a step that doesn't drip, or drip without rolling.
   - Set AUTO ROLL's style to **Sequencer steps** and the dice roll exactly where the lane says, each step with its own die. The lane lights up while it's driving the dice.
   - Saved with the project. FOLLOW still applies, so a silent track stays silent.
+- **FLUID water** (the button next to SIDE / TOP, both plugins): the visual becomes a real wave simulation. Ripples interfere, splash droplets fall back and ripple again, the water sloshes in time with the beat, and the surface churns when it gets loud. Saved with the project.
 - **Hold anything from the dice** (both plugins, manual and auto rolls). Everything you hold saves with the project.
   - **A whole panel:** its **HOLD** button.
   - **A row or group:** click its side caption: TONE, PATTERN, PITCH, DROP, SPREAD, SHAPE (filter type), CUT · RES, ENV, KEY · LFO, RISE, HOLD · FADE, DELAY, VERB · OUT.

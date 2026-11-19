@@ -40,6 +40,7 @@
   .viz .view { position: absolute; right: 10px; top: 8px; display: flex; border: 1px solid #23414a; border-radius: 6px; overflow: hidden; z-index: 2; }
   .viz .view button { background: rgba(5,12,16,.7); color: #6f9aa3; border: 0; font: inherit; font-size: 10px; letter-spacing: .16em; padding: 4px 9px; cursor: pointer; }
   .viz .view button.on { background: #0f3a44; color: var(--aqua); }
+  .viz .view button.water { border-left: 1px solid #23414a; }
 
   .rack { display: grid; grid-template-columns: 1fr 1.7fr 1fr 1.25fr; gap: 10px; }
   .rack .drip { grid-column: 2 / 5; }
@@ -472,7 +473,7 @@ const Fluidic = (() => {
       });
     }
     function persistUi() {
-      const st = { preset: current, view: vizView };
+      const st = { preset: current, view: vizView, water: vizWater };
       if (FX) { st.auto = autoState(); st.seq = seqData(); }
       if (typeof holdState === 'function' && panelHolds) st.holds = holdState();
       if (plugin) plugin.saveUi(JSON.stringify(st));
@@ -514,7 +515,7 @@ const Fluidic = (() => {
             (m.events || []).forEach((ev) => spawn(ev, now));
             viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
             if (m.auto) pluginAuto(m.auto, m.rolls);   // FLUIDIC FX: the plugin rolls the dice, even with this window shut
-            if (m.step != null) seqStep(m.step);
+            if (m.step != null) { seqStep(m.step); fluidBeat(m.step); }
           });
         }
         if (startOverlay.isConnected) startOverlay.remove();
@@ -539,7 +540,7 @@ const Fluidic = (() => {
         const now = performance.now();
         m.events.forEach((ev) => spawn(ev, now));
         viz.peak = m.peak; viz.voices = m.voices; if (m.cut) viz.cut = 1;
-        if (m.step != null) { gridSteps(m.step); seqStep(m.step); }
+        if (m.step != null) { gridSteps(m.step); seqStep(m.step); fluidBeat(m.step); }
       };
       if (FX) node.port.postMessage({ type: 'seq', seq: seqData() });
       // ping-pong delay and reverb sends, then a safety limiter on the output
@@ -827,6 +828,12 @@ const Fluidic = (() => {
     let vizView = 'top'; try { vizView = localStorage.getItem('fluidic-view') || 'top'; } catch (e) {}
     const viewBtns = [['side', 'SIDE'], ['top', 'TOP']].map(([v, label]) => { const b = el('button', '', label); b.addEventListener('click', () => { vizView = v; try { localStorage.setItem('fluidic-view', v); } catch (e) {} persistUi(); viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === v)); viz.sparks.length = 0; }); b.dataset.v = v; viewSw.append(b); return b; });
     viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === vizView));
+    // WATER: CALM (drawn ripples) or FLUID (a real wave simulation: interference, sloshing, cascades, turbulence)
+    let vizWater = 'calm'; try { vizWater = localStorage.getItem('fluidic-water') || 'calm'; } catch (e) {}
+    const waterBtn = el('button', 'water', 'FLUID'); waterBtn.title = 'FLUID water: ripples interfere, splashes cascade, the water sloshes with the rhythm and churns when it gets loud';
+    const paintWater = () => waterBtn.classList.toggle('on', vizWater === 'fluid');
+    waterBtn.addEventListener('click', () => { vizWater = vizWater === 'fluid' ? 'calm' : 'fluid'; try { localStorage.setItem('fluidic-water', vizWater); } catch (e) {} paintWater(); persistUi(); });
+    viewSw.append(waterBtn); paintWater();
     vizBox.append(canvas, hud, viewSw, startOverlay); root.append(vizBox);
     const mid = el('div', 'mid'); root.append(mid);   // the only part that scrolls, and only on short windows
     startOverlay.addEventListener('click', async () => { startOverlay.remove(); try { await start(); await ctx.resume(); } catch (e) { hud.textContent = 'AUDIO COULD NOT START: ' + e.message; } });
@@ -1544,28 +1551,134 @@ const Fluidic = (() => {
       for (let r = 0; r < rings; r++) viz.ripples.push({ x, y, t0: now + 40 + r * 110, size, hue, speed: 40 + 70 * (1.1 - Math.min(1, size)) + ev.sweep * 8 });
       const sparks = Math.round(2 + size * 7 + (ev.kind === 'splash' ? 4 : 0));
       for (let s = 0; s < sparks; s++) viz.sparks.push({ x, y: 0, ox: x, oy: y, ang: Math.random() * Math.PI * 2, dist: 10 + Math.random() * (14 + size * 34), vx: (Math.random() - 0.5) * (40 + size * 120), vy: -(60 + Math.random() * 160 * (0.4 + size)), t0: now + 40, hue, r: 0.8 + Math.random() * 1.6 * size });
+      fluidDrip(x, y, size, ev.kind, now);
       if (viz.ripples.length > 260) viz.ripples.splice(0, viz.ripples.length - 260);
       if (viz.sparks.length > 600) viz.sparks.splice(0, viz.sparks.length - 600);
       if (viz.drops.length > 120) viz.drops.splice(0, viz.drops.length - 120);
     }
 
+    /* ---- FLUID water: a height-field wave simulation (2-D from above, 1-D from the side) ----
+       Every drip pushes the surface down; the waves spread, reflect off the edges and interfere.
+       Splash droplets fall back in (cascades), the whole body sloshes with the drips and the beat,
+       and the surface churns with the level (turbulence). */
+    const fl = { s: 4, gw: 0, gh: 0, a: null, b: null, img: null, off: null, octx: null,   // 2-D field
+      line: null, lineP: null, n: 0,                                                       // 1-D field (side view)
+      slosh: 0, sloshV: 0, beat: -1, acc: 0 };
+    function fluidSize() {
+      const s = Math.max(3, Math.ceil(Math.max(W, H) / 230)), gw = Math.ceil(W / s) + 2, gh = Math.ceil(H / s) + 2;
+      if (gw !== fl.gw || gh !== fl.gh || s !== fl.s) {
+        fl.s = s; fl.gw = gw; fl.gh = gh; fl.a = new Float32Array(gw * gh); fl.b = new Float32Array(gw * gh); fl.v = new Float32Array(gw * gh);
+        fl.off = document.createElement('canvas'); fl.off.width = gw; fl.off.height = gh; fl.octx = fl.off.getContext('2d'); fl.img = fl.octx.createImageData(gw, gh);
+      }
+      const n = Math.max(32, Math.ceil(W / 3));
+      if (n !== fl.n) { fl.n = n; fl.line = new Float32Array(n + 2); fl.lineP = new Float32Array(n + 2); }   // lineP: the surface's velocity
+    }
+    function fluidPoke(x, y, amp, rad) {   // a round push into the 2-D field (x, y in pixels)
+      if (!fl.a) return;
+      const cx = x / fl.s + 1, cy = y / fl.s + 1, r = Math.max(1, rad), r2 = r * r;
+      for (let j = Math.max(1, (cy - r) | 0); j <= Math.min(fl.gh - 2, (cy + r) | 0); j++)
+        for (let i = Math.max(1, (cx - r) | 0); i <= Math.min(fl.gw - 2, (cx + r) | 0); i++) {
+          const d2 = (i - cx) * (i - cx) + (j - cy) * (j - cy); if (d2 > r2) continue;
+          fl.a[j * fl.gw + i] -= amp * (0.5 + 0.5 * Math.cos(Math.PI * Math.sqrt(d2) / r));
+        }
+    }
+    function linePoke(x, amp, rad) {       // a push into the 1-D surface (x in pixels)
+      if (!fl.line) return;
+      const c = x / W * fl.n + 1, r = Math.max(1, rad);
+      for (let i = Math.max(1, (c - r) | 0); i <= Math.min(fl.n, (c + r) | 0); i++) fl.line[i] += amp * (0.5 + 0.5 * Math.cos(Math.PI * Math.min(1, Math.abs(i - c) / r)));
+    }
+    function fluidDrip(x, y, size, kind, now) {
+      if (vizWater !== 'fluid') return;
+      fluidSize();
+      const amp = 90 + size * 260;
+      fluidPoke(x, y, amp, 1.2 + size * 2.4); linePoke(x, 1.2 + size * 3.2, 3 + size * 5);
+      fl.sloshV += (x / W - 0.5) * (0.4 + size) * 1.6;   // the body rocks away from where it was hit
+      if (kind === 'splash' || size > 0.9) fl.acc += size;
+    }
+    function fluidBeat(k) {   // the grid's downbeats rock the water: sloshing in time
+      if (vizWater !== 'fluid' || k === fl.beat) return;
+      fl.beat = k; const per = Math.max(1, stepsPerBar() / 4);
+      if (k % per === 0) fl.sloshV += ((k / per) % 2 ? 1 : -1) * (0.9 + Math.min(1.5, viz.peak) * 0.9);
+    }
+    function fluidStep(dt) {
+      fluidSize();
+      // sloshing: one damped spring for the whole body
+      // tuned to the tempo (one sway per beat) so the beat's pushes build it up, in time
+      const bps = FX ? Math.max(0.5, Math.min(4, (values['rhy.bpm'] || 120) / 60)) : 1, w = Math.PI * bps;
+      fl.sloshV += -fl.slosh * w * w * dt - fl.sloshV * 1.6 * dt; fl.slosh += fl.sloshV * dt;
+      fl.slosh = Math.max(-1.6, Math.min(1.6, fl.slosh));
+      // turbulence: the louder it is, the more the surface churns
+      const churn = Math.min(1, viz.peak / 1.6) + Math.min(1, fl.acc) * 0.5; fl.acc *= Math.exp(-dt * 3);
+      if (Math.random() < churn * 2.2 * dt) {   // now and then a swirl of broad, soft pushes
+        const cx = Math.random() * W, cy = Math.random() * H;
+        for (let q = 0; q < 3; q++) fluidPoke(cx + (Math.random() - 0.5) * 60, cy + (Math.random() - 0.5) * 60, (Math.random() - 0.5) * 40 * churn, 3 + Math.random() * 3);
+        linePoke(cx, (Math.random() - 0.5) * 0.8 * churn, 6);
+      }
+      const steps = Math.min(4, Math.max(1, Math.round(dt * 90)));
+      for (let n = 0; n < steps; n++) {
+        // 2-D wave equation, 9-point Laplacian (round ripples), velocity form, lightly damped
+        const { gw, gh } = fl, h = fl.a, v = fl.v;
+        for (let j = 1; j < gh - 1; j++) {
+          for (let i = j * gw + 1, e = j * gw + gw - 1; i < e; i++) {
+            const lap = (h[i - 1] + h[i + 1] + h[i - gw] + h[i + gw]) * 0.2 + (h[i - gw - 1] + h[i - gw + 1] + h[i + gw - 1] + h[i + gw + 1]) * 0.05 - h[i];
+            v[i] = (v[i] + lap * 0.42) * 0.992;
+          }
+        }
+        for (let i = 0; i < h.length; i++) h[i] = (h[i] + v[i]) * 0.9995;
+        // 1-D: the side view's surface, same scheme
+        const L = fl.line, P = fl.lineP, N = fl.n;
+        L[0] = L[1]; L[N + 1] = L[N];
+        for (let i = 1; i <= N; i++) P[i] = (P[i] + (L[i - 1] + L[i + 1] - 2 * L[i]) * 0.3) * 0.988;
+        for (let i = 1; i <= N; i++) L[i] = (L[i] + P[i]) * 0.999;
+      }
+      if (!Number.isFinite(fl.a[(fl.gh >> 1) * fl.gw + (fl.gw >> 1)]) || !Number.isFinite(fl.line[fl.n >> 1])) { fl.a.fill(0); fl.v.fill(0); fl.line.fill(0); fl.lineP.fill(0); }
+    }
+    function hslRgb(h, s, l) { s /= 100; l /= 100; const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l), f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)); return [f(0) * 255, f(8) * 255, f(4) * 255]; }
+    function drawTopFluid(now, dt, glowHue, heat) {
+      fluidStep(dt);
+      const { gw, gh } = fl, h = fl.a, px = fl.img.data;
+      const deep = hslRgb(glowHue, 60, 6 + heat * 6), mid = hslRgb(glowHue, 65, 20 + heat * 10), hi = hslRgb(glowHue, 90, 82);
+      const sl = fl.slosh * 22;
+      for (let j = 1; j < gh - 1; j++) {
+        for (let i = 1; i < gw - 1; i++) {
+          const k = j * gw + i;
+          // light from the upper left: slope of the surface, plus the slosh rocking the whole sheet
+          const sx = h[k - 1] - h[k + 1], sy = h[k - gw] - h[k + gw];
+          const lit = (sx + sy) * 0.012 + sl * Math.cos(Math.PI * i / gw) * 0.02;
+          // caustics: where the surface curves, light gathers
+          const lap = Math.abs(h[k - 1] + h[k + 1] + h[k - gw] + h[k + gw] - 4 * h[k]) * 0.006;
+          const t = Math.max(0, Math.min(1, 0.32 + lit)), c = Math.min(1, lap * lap * 0.9 + Math.max(0, lit - 0.25) * 1.4);
+          const o = k * 4;
+          px[o] = deep[0] + (mid[0] - deep[0]) * t + (hi[0] - mid[0]) * c;
+          px[o + 1] = deep[1] + (mid[1] - deep[1]) * t + (hi[1] - mid[1]) * c;
+          px[o + 2] = deep[2] + (mid[2] - deep[2]) * t + (hi[2] - mid[2]) * c;
+          px[o + 3] = 255;
+        }
+      }
+      fl.octx.putImageData(fl.img, 0, 0);
+      g.imageSmoothingEnabled = true; g.drawImage(fl.off, 1, 1, gw - 2, gh - 2, 0, 0, (gw - 2) * fl.s, (gh - 2) * fl.s);
+    }
     // overhead view: looking straight down on the water
     function drawTop(now, dt) {
       const heat = Math.min(1, Math.max(0, (viz.peak - 0.8) / 2.2));
       const glowHue = 188 - heat * 160;
+      const fluid = vizWater === 'fluid';
+      if (fluid) drawTopFluid(now, dt, glowHue, heat);
+      else {
       const bg = g.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, Math.max(W, H) * 0.75);
       bg.addColorStop(0, `hsl(${glowHue},55%,${9 + heat * 8}%)`); bg.addColorStop(1, '#02070a');
       g.fillStyle = bg; g.fillRect(0, 0, W, H);
+      }
       // slow caustic shimmer on the surface
       g.lineWidth = 1;
-      for (let i = 0; i < 7; i++) {
+      if (!fluid) for (let i = 0; i < 7; i++) {
         g.beginPath();
         for (let x = 0; x <= W; x += 10) { const yy = H * (i + 0.5) / 7 + Math.sin(x * 0.011 + idle * 0.6 + i) * 9 + Math.sin(x * 0.027 - idle * 0.4 + i * 2) * 4; x === 0 ? g.moveTo(x, yy) : g.lineTo(x, yy); }
         g.strokeStyle = `hsla(${glowHue},70%,55%,${0.05 + heat * 0.05})`; g.stroke();
       }
       // ripples: full circles spreading out from each impact
       viz.ripples = viz.ripples.filter((r) => (now - r.t0) / 1000 < 1.8);
-      for (const r of viz.ripples) {
+      if (!fluid) for (const r of viz.ripples) {
         const age = (now - r.t0) / 1000; if (age < 0) continue;
         const rad = 3 + age * r.speed * (1 + r.size) * 0.62, a = Math.max(0, 1 - age / 1.5) * (0.35 + 0.5 * Math.min(1, r.size));
         g.beginPath(); g.arc(r.x, r.y, rad, 0, Math.PI * 2);
@@ -1583,7 +1696,11 @@ const Fluidic = (() => {
         g.beginPath(); g.arc(d.x, d.y, r0 * (1 - age * 0.7), 0, Math.PI * 2); g.fillStyle = `hsla(${d.hue},90%,92%,${1 - age})`; g.fill();
       }
       // splash droplets thrown outwards, landing in a ring
-      viz.sparks = viz.sparks.filter((s) => now < s.t0 || now - s.t0 < 600);
+      viz.sparks = viz.sparks.filter((s) => {
+        const alive = now < s.t0 || now - s.t0 < 600;
+        if (!alive && fluid) fluidPoke(s.ox + Math.cos(s.ang) * s.dist, s.oy + Math.sin(s.ang) * s.dist, 22 + s.r * 26, 1);   // cascade: it lands and ripples
+        return alive;
+      });
       for (const s of viz.sparks) {
         if (now < s.t0) continue;
         const t = (now - s.t0) / 600, d = s.dist * (1 - (1 - t) * (1 - t));
@@ -1605,19 +1722,39 @@ const Fluidic = (() => {
       const glowHue = 188 - heat * 160;
       // water body
       const water = g.createLinearGradient(0, surf, 0, H); water.addColorStop(0, `hsla(${glowHue},70%,${18 + heat * 10}%,0.55)`); water.addColorStop(1, 'rgba(2,10,14,0.9)');
-      g.fillStyle = water; g.fillRect(0, surf, W, H - surf);
-      // surface line, disturbed by live ripples
+      g.fillStyle = water; if (vizWater !== 'fluid') g.fillRect(0, surf, W, H - surf);
+      // surface line, disturbed by live ripples (or, FLUID, the simulated surface rocking as a body)
+      const fluid = vizWater === 'fluid';
+      if (fluid) fluidStep(dt);
+      const surfAt = (x) => {
+        const c = x / W * fl.n + 1, i = Math.max(1, Math.min(fl.n, c | 0)), f = c - (c | 0), L = fl.line;
+        return surf + (L[i] * (1 - f) + L[Math.min(fl.n, i + 1)] * f) * 3.2 + fl.slosh * (x / W - 0.5) * 34 + Math.cos(Math.PI * 2 * x / W) * fl.sloshV * 2.5
+          + Math.sin(x * 0.012 + idle * 1.3) * 1.2;
+      };
+      if (fluid) {   // the water body follows the moving surface
+        g.beginPath(); g.moveTo(0, H);
+        for (let x = 0; x <= W; x += 4) g.lineTo(x, surfAt(x));
+        g.lineTo(W, H); g.closePath();
+        const wb = g.createLinearGradient(0, surf - 40, 0, H); wb.addColorStop(0, `hsla(${glowHue},75%,${24 + heat * 10}%,0.7)`); wb.addColorStop(1, 'rgba(2,10,14,0.95)');
+        g.fillStyle = wb; g.fill();
+        // light bands under the surface, bent by its slope
+        for (let k = 1; k <= 3; k++) {
+          g.beginPath();
+          for (let x = 0; x <= W; x += 8) { const y = surfAt(x) + k * 14 + (surfAt(x + 8) - surfAt(x)) * k * 0.8; x === 0 ? g.moveTo(x, y) : g.lineTo(x, y); }
+          g.strokeStyle = `hsla(${glowHue},80%,65%,${0.12 / k})`; g.lineWidth = 1; g.stroke();
+        }
+      }
       g.beginPath();
-      for (let x = 0; x <= W; x += 6) {
-        let y = surf + Math.sin(x * 0.012 + idle * 1.3) * 1.2 + Math.sin(x * 0.031 - idle * 0.9) * 0.6;
-        for (const r of viz.ripples) { const age = (now - r.t0) / 1000; if (age < 0 || age > 1.6) continue; const rad = age * r.speed * (1 + r.size); const d = Math.abs(x - r.x) - rad; if (Math.abs(d) < 18) y += Math.cos(d / 18 * Math.PI) * 3.2 * r.size * (1 - age / 1.6); }
+      for (let x = 0; x <= W; x += fluid ? 4 : 6) {
+        let y = fluid ? surfAt(x) : surf + Math.sin(x * 0.012 + idle * 1.3) * 1.2 + Math.sin(x * 0.031 - idle * 0.9) * 0.6;
+        if (!fluid) for (const r of viz.ripples) { const age = (now - r.t0) / 1000; if (age < 0 || age > 1.6) continue; const rad = age * r.speed * (1 + r.size); const d = Math.abs(x - r.x) - rad; if (Math.abs(d) < 18) y += Math.cos(d / 18 * Math.PI) * 3.2 * r.size * (1 - age / 1.6); }
         x === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
       }
       g.strokeStyle = `hsla(${glowHue},85%,${62 + heat * 8}%,${0.55 + heat * 0.35})`; g.lineWidth = 1.4 + heat * 1.6;
       g.shadowColor = `hsla(${glowHue},90%,60%,${0.4 + heat * 0.5})`; g.shadowBlur = 8 + heat * 22; g.stroke(); g.shadowBlur = 0;
       // ripples: perspective rings on the surface
       viz.ripples = viz.ripples.filter((r) => (now - r.t0) / 1000 < 1.8);
-      for (const r of viz.ripples) {
+      if (!fluid) for (const r of viz.ripples) {
         const age = (now - r.t0) / 1000; if (age < 0) continue;
         const rad = age * r.speed * (1 + r.size), a = Math.max(0, 1 - age / 1.8) * (0.35 + 0.5 * Math.min(1, r.size));
         g.beginPath(); g.ellipse(r.x, surf + 3, rad, rad * 0.2, 0, 0, Math.PI * 2);
@@ -1626,17 +1763,22 @@ const Fluidic = (() => {
       // falling streaks: each drop is drawn landing as it sounds
       viz.drops = viz.drops.filter((d) => now - d.t0 < 260);
       for (const d of viz.drops) {
-        const age = (now - d.t0) / 260, len = 30 + d.size * 70, top = surf - len * (1 - age * 0.6);
-        const grad = g.createLinearGradient(0, top, 0, surf); grad.addColorStop(0, `hsla(${d.hue},90%,80%,0)`); grad.addColorStop(1, `hsla(${d.hue},90%,85%,${0.9 * (1 - age)})`);
-        g.strokeStyle = grad; g.lineWidth = 1.2 + d.size * 2.4; g.beginPath(); g.moveTo(d.x, top); g.lineTo(d.x, surf); g.stroke();
-        g.beginPath(); g.arc(d.x, surf - 2, (2 + d.size * 4) * (1 - age), 0, Math.PI * 2); g.fillStyle = `hsla(${d.hue},90%,88%,${1 - age})`; g.fill();
+        const sy = fluid ? surfAt(d.x) : surf;
+        const age = (now - d.t0) / 260, len = 30 + d.size * 70, top = sy - len * (1 - age * 0.6);
+        const grad = g.createLinearGradient(0, top, 0, sy); grad.addColorStop(0, `hsla(${d.hue},90%,80%,0)`); grad.addColorStop(1, `hsla(${d.hue},90%,85%,${0.9 * (1 - age)})`);
+        g.strokeStyle = grad; g.lineWidth = 1.2 + d.size * 2.4; g.beginPath(); g.moveTo(d.x, top); g.lineTo(d.x, sy); g.stroke();
+        g.beginPath(); g.arc(d.x, sy - 2, (2 + d.size * 4) * (1 - age), 0, Math.PI * 2); g.fillStyle = `hsla(${d.hue},90%,88%,${1 - age})`; g.fill();
       }
       // splash sparks: little droplets thrown up that fall back in
-      viz.sparks = viz.sparks.filter((s) => s.y <= 4 || now < s.t0);
+      viz.sparks = viz.sparks.filter((s) => {
+        const alive = s.y <= 4 || now < s.t0;
+        if (!alive && fluid) linePoke(s.x, 0.25 + s.r * 0.3, 2.5);   // cascade: droplets fall back and ripple the surface
+        return alive;
+      });
       for (const s of viz.sparks) {
         if (now < s.t0) continue;
         s.vy += 520 * dt; s.x += s.vx * dt; s.y += s.vy * dt;
-        g.beginPath(); g.arc(s.x, surf + s.y, s.r, 0, Math.PI * 2); g.fillStyle = `hsla(${s.hue},90%,80%,0.85)`; g.fill();
+        g.beginPath(); g.arc(s.x, (fluid ? surfAt(s.x) : surf) + s.y, s.r, 0, Math.PI * 2); g.fillStyle = `hsla(${s.hue},90%,80%,0.85)`; g.fill();
       }
       }
       // emergency cut: a brief red flash
@@ -1660,6 +1802,7 @@ const Fluidic = (() => {
         hostVals = Object.assign({}, values);
         current = (ui.preset === 'f:Break Drips' ? 'f:Drippiness' : ui.preset) || 'f:' + OPEN_ON;   // renamed preset in older projects
         if (ui.view === 'side' || ui.view === 'top') { vizView = ui.view; viewBtns.forEach((x) => x.classList.toggle('on', x.dataset.v === vizView)); }
+        if (ui.water === 'fluid' || ui.water === 'calm') { vizWater = ui.water; paintWater(); }
         fillPresets(); widgets.forEach((w) => w.paint());
         if (ui.auto) setAutoState(ui.auto);
         if (ui.holds) setHoldState(ui.holds);
