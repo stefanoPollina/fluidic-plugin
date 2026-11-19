@@ -34,7 +34,7 @@
   .meter i b { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--aqua), var(--amber) 70%, var(--red)); }
 
   .viz { position: relative; height: auto; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #05080b; }
-  .viz canvas { width: 100%; height: 100%; display: block; }
+  .viz canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }   /* drag across the water to play it */
   .viz .hud { position: absolute; left: 14px; top: 10px; font-size: 10px; letter-spacing: .18em; color: #7fb6c1; pointer-events: none; }
   .viz .hud span { color: var(--aqua); }
   .viz .view { position: absolute; right: 10px; top: 8px; display: flex; border: 1px solid #23414a; border-radius: 6px; overflow: hidden; z-index: 2; }
@@ -1562,6 +1562,8 @@ const Fluidic = (() => {
     if (window.ResizeObserver) new ResizeObserver(resize).observe(vizBox);
     const KIND_HUE = { note: 188, rain: 192, splash: 172, stream: 204 };
     function spawn(ev, now) {
+      // a drip you played by touching the water is already drawn under your finger
+      if (ev.kind === 'note' && touchEchoes.length && now - touchEchoes[0] < 600) { touchEchoes.shift(); return; }
       const x = ev.x * W, size = Math.min(1.5, ev.size), hue = (KIND_HUE[ev.kind] || 190) - (ev.note - 60) * 0.6 + ev.chirp * 10;
       const y = H * (0.14 + 0.72 * Math.random());
       viz.drops.push({ x, y, t0: now, size, hue });
@@ -1677,6 +1679,45 @@ const Fluidic = (() => {
       fl.octx.putImageData(fl.img, 0, 0);
       g.imageSmoothingEnabled = true; g.drawImage(fl.off, 1, 1, gw - 2, gh - 2, 0, 0, (gw - 2) * fl.s, (gh - 2) * fl.s);
     }
+    /* ---- touch the water: drag a mouse or finger across it to play ----
+       Left to right is low to high (a pentatonic scale over three octaves); faster strokes drip harder.
+       Each drip is a short note through the same path as the keys, so the plugin plays it too. */
+    const TOUCH_SCALE = [0, 3, 5, 7, 10], touchEchoes = [];
+    let touchLast = null;
+    function touchDrip(px, py, speed) {
+      if (!node) return;
+      const xn = Math.min(0.999, Math.max(0, px / W)), idx = Math.floor(xn * 15);
+      const note = 48 + 12 * Math.floor(idx / 5) + TOUCH_SCALE[idx % 5];
+      const vel = Math.min(0.8, 0.22 + speed * 0.0005);
+      const now = performance.now(), size = 0.35 + vel * 0.8, hue = 188 - (note - 60) * 0.6;
+      // drawn right here, at once
+      viz.drops.push({ x: px, y: py, t0: now, size, hue });
+      for (let r = 0; r < 2; r++) viz.ripples.push({ x: px, y: py, t0: now + 40 + r * 110, size, hue, speed: 55 });
+      for (let k = 0; k < 6; k++) viz.sparks.push({ x: px, y: 0, ox: px, oy: py, ang: Math.random() * Math.PI * 2, dist: 10 + Math.random() * 30, vx: (Math.random() - 0.5) * 120, vy: -(60 + Math.random() * 140), t0: now + 40, hue, r: 0.8 + Math.random() * 1.4 * size });
+      fluidDrip(px, py, size * 0.55, 'note', now);
+      touchEchoes.push(now); if (touchEchoes.length > 16) touchEchoes.shift();
+      if (held.has(note)) return;   // you're holding that key: just the ripple
+      node.port.postMessage({ type: 'on', note, vel });
+      setTimeout(() => { if (node && !held.has(note)) node.port.postMessage({ type: 'off', note }); }, 110);
+    }
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+      canvas.setPointerCapture(e.pointerId);
+      touchLast = { x: px, y: py, t: performance.now(), dx: px, dy: py };
+      touchDrip(px, py, 300);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!touchLast || !canvas.hasPointerCapture(e.pointerId)) return;
+      const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, t = performance.now();
+      const d = Math.hypot(px - touchLast.dx, py - touchLast.dy), dt = Math.max(1, t - touchLast.t);
+      const speed = Math.hypot(px - touchLast.x, py - touchLast.y) / dt * 1000;   // px per second
+      touchLast.x = px; touchLast.y = py; touchLast.t = t;
+      if (d >= 42 || (d >= 14 && t - (touchLast.lastDrip || 0) > 140)) { touchLast.dx = px; touchLast.dy = py; touchLast.lastDrip = t; touchDrip(px, py, speed); }
+    });
+    const touchEnd = (e) => { touchLast = null; try { canvas.releasePointerCapture(e.pointerId); } catch (x) {} };
+    canvas.addEventListener('pointerup', touchEnd); canvas.addEventListener('pointercancel', touchEnd);
+
     // overhead view: looking straight down on the water
     function drawTop(now, dt) {
       const heat = Math.min(1, Math.max(0, (viz.peak - 0.8) / 2.2));
