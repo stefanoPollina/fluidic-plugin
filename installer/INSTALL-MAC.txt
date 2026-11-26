@@ -1,0 +1,12 @@
+FLUIDIC + FLUIDIC FX - macOS (Apple Silicon and Intel, macOS 11 or later)
+
+1. Close your DAW. Copy the plugins into your plug-in folders (Finder: Go > Go to Folder...):
+      "FLUIDIC.vst3" and "FLUIDIC FX.vst3"            ->  ~/Library/Audio/Plug-Ins/VST3
+      "FLUIDIC.component" and "FLUIDIC FX.component"  ->  ~/Library/Audio/Plug-Ins/Components   (Logic, GarageBand)
+   "FLUIDIC.app" is the standalone synth: drag it into Applications.
+2. This early build is not signed by Apple yet, so macOS blocks it until you allow it once.
+   Open Terminal and paste:
+      xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/FLUIDIC*.vst3 ~/Library/Audio/Plug-Ins/Components/FLUIDIC*.component /Applications/FLUIDIC.app
+   (For the app alone you can instead open it, then System Settings > Privacy & Security > Open Anyway.)
+3. Rescan plugins in your DAW. Ableton Live: Settings > Plug-Ins > Rescan. Logic checks Audio Units on its next start.
+4. FLUIDIC goes on an instrument track; FLUIDIC FX on an audio track, a bus or the master.

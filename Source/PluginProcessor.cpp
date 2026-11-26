@@ -363,7 +363,11 @@ void FluidicProcessor::setStateInformation (const void* data, int size)
 
 juce::File FluidicProcessor::userBankFile()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("FLUIDIC").getChildFile (isFx ? "user-bank-fx.json" : "user-bank.json");
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+#if JUCE_MAC
+        .getChildFile ("Application Support")   // ~/Library/Application Support/FLUIDIC
+#endif
+        .getChildFile ("FLUIDIC").getChildFile (isFx ? "user-bank-fx.json" : "user-bank.json");
 }
 
 juce::AudioProcessorEditor* FluidicProcessor::createEditor() { return new FluidicEditor (*this); }

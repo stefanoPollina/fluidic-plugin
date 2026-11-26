@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Oldest macOS the Mac build runs on")
 project(FLUIDIC VERSION 0.3.0 LANGUAGES C CXX)   # the one version number: plugins, installer and download names
 
 # FLUIDIC — drip synthesis: FLUIDIC (instrument: VST3 + Standalone) and FLUIDIC FX (audio effect: VST3).
@@ -21,6 +22,15 @@ else()
     include(FetchContent)
     FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git GIT_TAG 8.0.4 GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(JUCE)
+endif()
+
+# formats: VST3 (+ FLUIDIC's standalone app) everywhere; on a Mac also Audio Unit, for Logic and GarageBand
+if(APPLE)
+    set(FLUIDIC_FORMATS VST3 AU Standalone)
+    set(FLUIDIC_FX_FORMATS VST3 AU)
+else()
+    set(FLUIDIC_FORMATS VST3 Standalone)
+    set(FLUIDIC_FX_FORMATS VST3)
 endif()
 
 set(FLUIDIC_DSP Source/dsp/FluidicEngine.cpp Source/dsp/FluidicFxEngine.cpp Source/dsp/FxBus.cpp Source/DiceRoller.cpp)
@@ -48,7 +58,7 @@ if(FLUIDIC_BUILD_PLUGIN)
         BUNDLE_ID "com.fluidic.fluidic"
         PLUGIN_MANUFACTURER_CODE Fldc
         PLUGIN_CODE Fdc1
-        FORMATS VST3 Standalone
+        FORMATS ${FLUIDIC_FORMATS}
         IS_SYNTH TRUE
         NEEDS_MIDI_INPUT TRUE
         NEEDS_MIDI_OUTPUT FALSE
@@ -67,7 +77,7 @@ if(FLUIDIC_BUILD_PLUGIN)
         BUNDLE_ID "com.fluidic.fluidicfx"
         PLUGIN_MANUFACTURER_CODE Fldc
         PLUGIN_CODE Fdx1
-        FORMATS VST3
+        FORMATS ${FLUIDIC_FX_FORMATS}
         IS_SYNTH FALSE
         NEEDS_MIDI_INPUT TRUE
         NEEDS_MIDI_OUTPUT FALSE

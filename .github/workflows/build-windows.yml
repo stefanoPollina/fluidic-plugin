@@ -61,3 +61,41 @@ jobs:
           Compress-Archive -Path dist\FLUIDIC.exe, dist\FLUIDIC.vst3, "dist\FLUIDIC FX.vst3" -DestinationPath rel\FLUIDIC-Windows-Plugins.zip
           $notes = "FLUIDIC $ver for Windows.`n`n- **FLUIDIC-Windows-Setup.exe**: the installer (FLUIDIC + FLUIDIC FX VST3s and the standalone app). Close your DAW first, then rescan plugins.`n- **FLUIDIC-Windows-Plugins.zip**: the same files to copy by hand (VST3s go in C:\Program Files\Common Files\VST3).`n`nBuilt from $env:GITHUB_SHA."
           gh release create "v$ver" rel\FLUIDIC-Windows-Setup.exe rel\FLUIDIC-Windows-Plugins.zip --title "FLUIDIC $ver" --notes $notes --latest --target $env:GITHUB_SHA
+
+  # ---- the Mac build: FLUIDIC (+ standalone) and FLUIDIC FX as VST3 + Audio Unit, Apple Silicon and Intel in one.
+  # Its own job: a Mac problem never holds up the Windows release, and on main it adds a zip to it.
+  macos:
+    runs-on: macos-14
+    needs: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (downloads JUCE)
+        run: cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build FLUIDIC + FLUIDIC FX
+        run: cmake --build build --config Release --target FLUIDIC_VST3 FLUIDIC_AU FLUIDIC_Standalone FLUIDIC_FX_VST3 FLUIDIC_FX_AU -- -quiet
+
+      - name: Package
+        run: |
+          A=build/FLUIDIC_artefacts/Release; F=build/FLUIDIC_FX_artefacts/Release; D="dist/FLUIDIC (macOS)"
+          mkdir -p "$D"
+          cp -R "$A/VST3/FLUIDIC.vst3" "$A/AU/FLUIDIC.component" "$A/Standalone/FLUIDIC.app" "$F/VST3/FLUIDIC FX.vst3" "$F/AU/FLUIDIC FX.component" "$D/"
+          cp installer/INSTALL-MAC.txt "$D/"
+          for b in "$D"/*.vst3 "$D"/*.component "$D"/*.app; do codesign --force --deep --sign - "$b"; done
+          (cd dist && ditto -c -k --keepParent "FLUIDIC (macOS)" FLUIDIC-macOS.zip)
+          ls -la dist
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: FLUIDIC-macos
+          path: dist/FLUIDIC-macOS.zip
+
+      - name: Add the Mac download to the Release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(sed -n 's/^project(FLUIDIC VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          gh release upload "v$v.$GITHUB_RUN_NUMBER" dist/FLUIDIC-macOS.zip
