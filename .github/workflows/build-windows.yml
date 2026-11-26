@@ -76,6 +76,14 @@ jobs:
       - name: Build FLUIDIC + FLUIDIC FX
         run: cmake --build build --config Release --target FLUIDIC_VST3 FLUIDIC_AU FLUIDIC_Standalone FLUIDIC_FX_VST3 FLUIDIC_FX_AU -- -quiet
 
+      - name: Check (both chips, and Apple's Audio Unit validator)
+        continue-on-error: true
+        run: |
+          lipo -archs build/FLUIDIC_artefacts/Release/VST3/FLUIDIC.vst3/Contents/MacOS/FLUIDIC
+          mkdir -p ~/Library/Audio/Plug-Ins/Components && cp -R build/FLUIDIC_artefacts/Release/AU/FLUIDIC.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true; sleep 2
+          auval -v aumu Fdc1 $(sed -n 's/.*PLUGIN_MANUFACTURER_CODE \([A-Za-z0-9]*\).*/\1/p' CMakeLists.txt | head -1) | tail -25
+
       - name: Package
         run: |
           A=build/FLUIDIC_artefacts/Release; F=build/FLUIDIC_FX_artefacts/Release; D="dist/FLUIDIC (macOS)"
