@@ -65,7 +65,7 @@ jobs:
   # ---- the Mac build: FLUIDIC (+ standalone) and FLUIDIC FX as VST3 + Audio Unit, Apple Silicon and Intel in one.
   # Its own job: a Mac problem never holds up the Windows release, and on main it adds a zip to it.
   macos:
-    runs-on: macos-14
+    runs-on: macos-latest
     needs: windows
     steps:
       - uses: actions/checkout@v4
